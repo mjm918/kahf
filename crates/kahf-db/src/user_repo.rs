@@ -20,6 +20,10 @@
 //!
 //! Updates mutable user fields: `name` and `avatar_url`.
 //!
+//! ## update_password
+//!
+//! Updates the password hash for a given user ID.
+//!
 //! ## mark_email_verified
 //!
 //! Sets `email_verified = true` for the given user ID.
@@ -93,6 +97,16 @@ pub async fn update_user(
         .bind(name)
         .bind(avatar_url)
         .bind(id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn update_password(pool: &PgPool, user_id: Uuid, password_hash: &str) -> eyre::Result<()> {
+    sqlx::query("UPDATE users SET password = $1 WHERE id = $2")
+        .bind(password_hash)
+        .bind(user_id)
         .execute(pool)
         .await?;
 

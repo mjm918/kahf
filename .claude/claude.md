@@ -38,10 +38,24 @@ See `.claude/docs/plan/` for full architecture documents:
 - Primary color: Azure blue (#0078D4). Neutral grays: #F3F2F1, #EDEBE9, #D2D0CE. White content areas.
 - Layout: Collapsible left nav blade, breadcrumb navigation, command bars, business-grade data density.
 - Typography: Segoe UI font family. Flat design with subtle borders, no heavy shadows.
+- DENSE styling: Use `e-small` CSS class on ALL Syncfusion components for compact, business-grade density.
+- NO custom CSS styling. Ever. Use ONLY Syncfusion theme classes and Tailwind layout utilities on wrappers.
+- All UI must be congested/compact — minimize whitespace, maximize information density like Azure Portal.
+
+### UX — Defensive UI Patterns Required
+- EVERY destructive action (delete, remove, leave, revoke) MUST show a Syncfusion confirmation dialog BEFORE executing.
+- Use `DialogUtility.confirm()` or Syncfusion `ejs-dialog` with confirm/cancel buttons — never browser `confirm()`.
+- Form submissions MUST disable the submit button and show loading state until the server responds.
+- Error states MUST be shown inline using Syncfusion Message component or card-based error banners.
+- Empty states MUST show a meaningful message — never leave a blank screen.
+- Toast notifications (Syncfusion `ejs-toast`) for success feedback after create/update/delete operations.
+- Unsaved changes MUST trigger a "discard changes?" prompt before navigation.
 
 ### Syncfusion UI — Mandatory
 - ALL UI components MUST use Syncfusion EJ2 Angular components.
+- ALL components MUST use `e-small` CSS class for dense/compact sizing.
 - Refer to `syncfusion-angular-assistant` MCP for component guidance.
+- Use Syncfusion Fluent 2 theme (`@syncfusion/ej2-fluent2-theme`) — already configured.
 - Component mapping (from ARCHITECTURE_DESIGN.md):
   - Board → KanbanComponent
   - Tasks → GridComponent, GanttComponent
@@ -62,12 +76,16 @@ See `.claude/docs/plan/` for full architecture documents:
 - Integration tests are the primary testing strategy — unit tests alone are insufficient.
 - Use `dbhub` MCP to query the staging DB schema and data for test design.
 
-### UI Validation — Playwright Required
-- BEFORE claiming any UI feature is complete, validate it with Playwright via the `playwright` MCP.
-- Navigate to the page, take a screenshot, verify the layout matches the spec.
-- Test user interactions: click, fill, submit, verify state changes.
-- Test error states: invalid form submissions, network errors, empty states.
+### UI Validation — Playwright Required (MANDATORY, NOT OPTIONAL)
+- AFTER implementing ANY UI feature, you MUST validate it with Playwright via the `playwright` MCP. This is NOT optional.
+- Start the dev server (`bun run start` in frontend/), then use Playwright to:
+  1. Navigate to the page.
+  2. Take a screenshot to verify layout and visual correctness.
+  3. Test user interactions: click, fill forms, submit, verify state changes.
+  4. Test error states: invalid form submissions, empty fields, wrong credentials.
+  5. Test defensive UX: confirm dialogs on destructive actions, loading states, toast notifications.
 - A feature is NOT complete until Playwright confirms it works visually and functionally.
+- If Playwright reveals issues, fix them BEFORE claiming completion.
 
 ### Verification Protocol
 - NEVER say "done" or "complete" without running the actual code/tests.
@@ -92,11 +110,12 @@ See `.claude/docs/plan/` for full architecture documents:
 - Logging: tracing 0.1
 
 ### Frontend (Angular + TypeScript, bun runtime)
-- Angular 19, Angular Router, Angular CLI (via bun)
-- Syncfusion EJ2 Angular v27 (all components)
+- Angular 21, Angular Router, Angular CLI (via bun)
+- Syncfusion EJ2 Angular v32 (all components, Fluent 2 theme, `e-small` dense mode)
 - Y.js 13 + y-websocket 2 + y-prosemirror 1
-- Angular Signals / NgRx (state management)
-- HttpClient (Angular built-in HTTP client)
+- Angular Signals (state management — no NgRx, use signals and services)
+- Axios 1 (HTTP client with JWT interceptor)
+- Tailwind CSS 4 via CDN (layout utilities on wrapper elements ONLY)
 - bun for ALL operations: install, run, test, build
 
 ### Infrastructure

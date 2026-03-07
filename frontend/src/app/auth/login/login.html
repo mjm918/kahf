@@ -1,0 +1,49 @@
+<!-- Login page: email/password form inside shared auth layout. -->
+
+<app-auth-layout>
+  <div class="flex flex-col">
+    <span class="text-md font-semibold" style="color: var(--color-sf-content-text-color)">Sign in</span>
+    <span class="text-xs" style="color: var(--color-sf-content-text-color-alt2)">Enter your credentials to continue</span>
+  </div>
+
+  @if (error()) {
+    <div class="mb-1 p-1.5 rounded text-xs" style="background: var(--color-sf-danger-light-alt); color: var(--color-sf-danger)">
+      {{ error() }}
+    </div>
+  }
+
+  <form (ngSubmit)="onSubmit()" class="flex flex-col">
+    <ejs-textbox
+      [(ngModel)]="email"
+      name="email"
+      placeholder="Email"
+      [floatLabelType]="'Auto'"
+      type="email"
+      class="w-full"
+    ></ejs-textbox>
+    <ejs-textbox
+      [(ngModel)]="password"
+      name="password"
+      placeholder="Password"
+      [floatLabelType]="'Auto'"
+      type="password"
+      class="w-full"
+    ></ejs-textbox>
+    <div class="flex justify-end my-2">
+      <a class="text-xs cursor-pointer" style="color: var(--color-sf-primary)">Forgot password?</a>
+    </div>
+    <button
+      ejs-button
+      type="submit"
+      [isPrimary]="true"
+      [disabled]="loading()"
+      [content]="loading() ? 'Signing in...' : 'Sign in'"
+      class="w-full"
+    ></button>
+  </form>
+
+  <div class="mt-2 text-center text-xs" style="color: var(--color-sf-content-text-color-alt2)">
+    Don't have an account?
+    <a routerLink="/auth/signup" style="color: var(--color-sf-primary); cursor: pointer">Sign up</a>
+  </div>
+</app-auth-layout>

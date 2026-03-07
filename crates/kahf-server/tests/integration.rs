@@ -25,6 +25,14 @@ impl EmailSender for NoopEmailSender {
     fn send_otp(&self, _to_email: &str, _otp_code: &str) -> eyre::Result<()> {
         Ok(())
     }
+
+    fn send_password_reset_otp(&self, _to_email: &str, _otp_code: &str) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    fn send_invite(&self, _to_email: &str, _inviter_name: &str, _invite_token: &str) -> eyre::Result<()> {
+        Ok(())
+    }
 }
 
 fn database_url() -> String {

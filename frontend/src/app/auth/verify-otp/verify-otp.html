@@ -1,0 +1,53 @@
+<!-- OTP verification page: 6-digit input inside shared auth layout. -->
+
+<app-auth-layout>
+  <div class="flex flex-col mb-2">
+    <span class="text-base font-semibold" style="color: var(--color-sf-content-text-color)">Verify your email</span>
+    <span class="text-xs" style="color: var(--color-sf-content-text-color-alt2)">
+      We sent a 6-digit code to <strong>{{ email }}</strong>
+    </span>
+  </div>
+
+  @if (error()) {
+    <div class="mb-1 p-1.5 rounded text-xs" style="background: var(--color-sf-danger-light-alt); color: var(--color-sf-danger)">
+      {{ error() }}
+    </div>
+  }
+
+  @if (success()) {
+    <div class="mb-1 p-1.5 rounded text-xs" style="background: var(--color-sf-success-light-alt); color: var(--color-sf-success)">
+      {{ success() }}
+    </div>
+  }
+
+  <div class="flex flex-col items-center">
+    <div ejs-otpinput
+      [length]="6"
+      [type]="'Number'"
+      [autoFocus]="true"
+      [stylingMode]="'Outlined'"
+      [placeholder]="'-'"
+      cssClass="e-small"
+      (valueChanged)="onOtpChange($event)"
+    ></div>
+
+    <button
+      ejs-button
+      [isPrimary]="true"
+      [disabled]="loading()"
+      [content]="loading() ? 'Verifying...' : 'Verify'"
+      cssClass="e-small"
+      class="w-full"
+      (click)="onVerify()"
+    ></button>
+  </div>
+
+  <div class="mt-1.5 text-center text-xs" style="color: var(--color-sf-content-text-color-alt2)">
+    @if (resendCooldown() > 0) {
+      Resend code in {{ resendCooldown() }}s
+    } @else {
+      Didn't receive the code?
+      <a (click)="onResend()" style="color: var(--color-sf-primary); cursor: pointer">Resend</a>
+    }
+  </div>
+</app-auth-layout>

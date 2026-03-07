@@ -1,0 +1,13 @@
+/**
+ * Global styles: Syncfusion Fluent 2 theme import and base layout resets.
+ */
+
+@import "@syncfusion/ej2-fluent2-theme/styles/fluent2.css";
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--color-sf-content-bg-color);
+  color: var(--color-sf-content-text-color);
+}

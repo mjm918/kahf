@@ -6,7 +6,14 @@
       "mcp__context7__query-docs",
       "Bash(cargo test:*)",
       "Bash(cargo info:*)",
-      "mcp__syncfusion-angular-assistant__sf_angular_component"
+      "mcp__syncfusion-angular-assistant__sf_angular_component",
+      "Bash(bun:*)",
+      "Bash(ng new:*)",
+      "mcp__syncfusion-angular-assistant__sf_angular_assistant",
+      "mcp__syncfusion-angular-assistant__sf_angular_style",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_resize"
     ]
   },
   "enableAllProjectMcpServers": true,
