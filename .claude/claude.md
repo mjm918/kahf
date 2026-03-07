@@ -12,6 +12,10 @@ See `.claude/docs/plan/` for full architecture documents:
 - `SERVICES_ARCHITECTURE.md` — Huly services reference
 - `UI_ARCHITECTURE.md` — Huly UI layout and navigation reference
 
+## Running the Project
+
+Run `./scripts/dev.sh` to start both backend and frontend. It kills existing instances on ports 3000/4200, starts the backend (`cargo run --bin kahf`), then the frontend (`bun run start`). Ctrl+C stops both.
+
 ## Hard Rules — Non-Negotiable
 
 ### Architecture

@@ -11,11 +11,18 @@
 //! tenant-level invitation links. Implemented by `SmtpEmailSender` for
 //! production use. Tests can supply a no-op implementation.
 //!
+//! ## SmtpEncryption
+//!
+//! Transport encryption mode: `Tls` (implicit TLS), `StartTls`
+//! (upgrade-to-TLS), or `None` (plaintext). Configured via the
+//! `EMAIL_ENCRYPTION` env var (values: `tls`, `starttls`, `none`;
+//! defaults to `tls`).
+//!
 //! ## SmtpConfig
 //!
 //! SMTP connection configuration: `host`, `port`, `username`, `password`,
-//! `from_email`, `sender_email`. Loaded from environment variables by
-//! `SmtpConfig::from_env()`.
+//! `from_email`, `sender_email`, `encryption`. Loaded from environment
+//! variables by `SmtpConfig::from_env()`.
 //!
 //! ## SmtpEmailSender
 //!
@@ -50,6 +57,13 @@ pub trait EmailSender: Send + Sync {
     fn send_invite(&self, to_email: &str, inviter_name: &str, invite_token: &str) -> eyre::Result<()>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmtpEncryption {
+    Tls,
+    StartTls,
+    None,
+}
+
 #[derive(Debug, Clone)]
 pub struct SmtpConfig {
     pub host: String,
@@ -58,10 +72,21 @@ pub struct SmtpConfig {
     pub password: String,
     pub from_email: String,
     pub sender_email: String,
+    pub encryption: SmtpEncryption,
 }
 
 impl SmtpConfig {
     pub fn from_env() -> eyre::Result<Self> {
+        let encryption = match std::env::var("EMAIL_ENCRYPTION")
+            .unwrap_or_else(|_| "tls".into())
+            .to_lowercase()
+            .as_str()
+        {
+            "starttls" => SmtpEncryption::StartTls,
+            "none" => SmtpEncryption::None,
+            _ => SmtpEncryption::Tls,
+        };
+
         Ok(Self {
             host: std::env::var("EMAIL_HOST").wrap_err("EMAIL_HOST must be set")?,
             port: std::env::var("EMAIL_PORT")
@@ -72,6 +97,7 @@ impl SmtpConfig {
             password: std::env::var("EMAIL_PW").wrap_err("EMAIL_PW must be set")?,
             from_email: std::env::var("EMAIL_FROM").wrap_err("EMAIL_FROM must be set")?,
             sender_email: std::env::var("SENDER_EMAIL").wrap_err("SENDER_EMAIL must be set")?,
+            encryption,
         })
     }
 }
@@ -132,11 +158,22 @@ impl SmtpEmailSender {
 
         let creds = Credentials::new(self.config.username.clone(), self.config.password.clone());
 
-        let mailer = SmtpTransport::starttls_relay(&self.config.host)
-            .wrap_err("failed to create SMTP transport")?
-            .port(self.config.port)
-            .credentials(creds)
-            .build();
+        let mailer = match self.config.encryption {
+            SmtpEncryption::StartTls => SmtpTransport::starttls_relay(&self.config.host)
+                .wrap_err("failed to create SMTP STARTTLS transport")?
+                .port(self.config.port)
+                .credentials(creds)
+                .build(),
+            SmtpEncryption::None => SmtpTransport::builder_dangerous(&self.config.host)
+                .port(self.config.port)
+                .credentials(creds)
+                .build(),
+            SmtpEncryption::Tls => SmtpTransport::relay(&self.config.host)
+                .wrap_err("failed to create SMTP TLS transport")?
+                .port(self.config.port)
+                .credentials(creds)
+                .build(),
+        };
 
         mailer.send(&email).wrap_err("failed to send email")?;
 

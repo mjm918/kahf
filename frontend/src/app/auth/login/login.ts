@@ -9,21 +9,23 @@
  * info banner when redirected from the signup page.
  */
 
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ViewChild, AfterViewInit } from '@angular/core';
 import { Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { TextBoxModule } from '@syncfusion/ej2-angular-inputs';
+import { TextBoxModule, TextBoxComponent } from '@syncfusion/ej2-angular-inputs';
 import { ButtonModule, CheckBoxModule } from '@syncfusion/ej2-angular-buttons';
+import { MessageModule } from '@syncfusion/ej2-angular-notifications';
 import { AuthService } from '../../core/services/auth.service';
 import { AuthLayout } from '../auth-layout/auth-layout';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule, TextBoxModule, ButtonModule, CheckBoxModule, RouterLink, AuthLayout],
+  imports: [FormsModule, TextBoxModule, ButtonModule, CheckBoxModule, MessageModule, RouterLink, AuthLayout],
   templateUrl: './login.html',
 })
-export class Login implements OnInit {
+export class Login implements OnInit, AfterViewInit {
+  @ViewChild('passwordBox') passwordBox!: TextBoxComponent;
   email = '';
   password = '';
   rememberMe = true;
@@ -37,6 +39,16 @@ export class Login implements OnInit {
     private router: Router,
     private route: ActivatedRoute,
   ) {}
+
+  ngAfterViewInit(): void {
+    this.passwordBox.addIcon('append', 'e-icons e-eye');
+    const el = this.passwordBox.element as HTMLInputElement;
+    el.parentElement!
+      .querySelector('.e-eye')!
+      .addEventListener('click', () => {
+        el.type = el.type === 'password' ? 'text' : 'password';
+      });
+  }
 
   async ngOnInit(): Promise<void> {
     const msg = this.route.snapshot.queryParamMap.get('message');

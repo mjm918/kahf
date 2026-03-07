@@ -9,14 +9,13 @@
 //! ## signup
 //!
 //! Creates a new user account with `email_verified = false`. Hashes the
-//! password with Argon2id, inserts the user, generates a 6-digit OTP,
-//! stores it in the database, and sends it via SMTP. If users already
-//! exist, an `invite_token` is required — the first registrant becomes
-//! the tenant owner, all subsequent users must be invited. Accepts an
-//! optional `invite_token` — if provided, validates it and marks the
-//! invitation as accepted after user creation. Returns `SignupResponse`
-//! with `user_id` and `email` (no tokens yet — user must verify email
-//! first).
+//! password with Argon2id, inserts the user with separate first/last name
+//! fields, generates a 6-digit OTP, stores it in the database, and sends
+//! it via SMTP. If users already exist, an `invite_token` is required —
+//! the first registrant becomes the tenant owner and a tenant record is
+//! created with the provided `company_name`. All subsequent users must be
+//! invited. Returns `SignupResponse` with `user_id` and `email` (no tokens
+//! yet — user must verify email first).
 //!
 //! ## verify_otp
 //!
@@ -65,7 +64,7 @@
 //! ## AuthResponse
 //!
 //! Response payload containing `access_token`, `refresh_token`, and
-//! basic user info (`user_id`, `email`, `name`).
+//! basic user info (`user_id`, `email`, `first_name`, `last_name`).
 //!
 //! ## SignupResponse
 //!
@@ -104,7 +103,8 @@ pub struct AuthResponse {
     pub refresh_token: String,
     pub user_id: Uuid,
     pub email: String,
-    pub name: String,
+    pub first_name: String,
+    pub last_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,7 +142,9 @@ pub async fn signup(
     mailer: &dyn EmailSender,
     email: &str,
     password: &str,
-    name: &str,
+    first_name: &str,
+    last_name: &str,
+    company_name: Option<&str>,
     invite_token: Option<&str>,
 ) -> eyre::Result<SignupResponse> {
     let user_count = kahf_db::user_repo::count_users(pool).await?;
@@ -150,6 +152,12 @@ pub async fn signup(
     if user_count > 0 && invite_token.is_none() {
         return Err(kahf_core::KahfError::forbidden(
             "registration is closed — new members can only join via invitation",
+        ));
+    }
+
+    if user_count == 0 && company_name.is_none() {
+        return Err(kahf_core::KahfError::validation(
+            "company name is required for the first registration",
         ));
     }
 
@@ -166,7 +174,11 @@ pub async fn signup(
     }
 
     let password_hash = hash_password(password)?;
-    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, name).await?;
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, first_name, last_name).await?;
+
+    if let Some(cn) = company_name {
+        kahf_db::tenant_repo::create_tenant(pool, cn, user.id).await?;
+    }
 
     let otp_code = generate_otp();
     let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
@@ -210,7 +222,8 @@ pub async fn verify_otp(
         refresh_token,
         user_id: user.id,
         email: user.email,
-        name: user.name,
+        first_name: user.first_name,
+        last_name: user.last_name,
     })
 }
 
@@ -266,7 +279,8 @@ pub async fn login(
         refresh_token,
         user_id: user.id,
         email: user.email,
-        name: user.name,
+        first_name: user.first_name,
+        last_name: user.last_name,
     })
 }
 
@@ -370,7 +384,7 @@ pub async fn invite_user(
     )
     .await?;
 
-    mailer.send_invite(invitee_email, &inviter.name, &token)?;
+    mailer.send_invite(invitee_email, &inviter.full_name(), &token)?;
 
     Ok(InviteResponse {
         invitation_id: invitation.id,

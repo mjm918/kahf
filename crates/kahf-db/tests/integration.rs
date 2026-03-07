@@ -311,11 +311,12 @@ async fn user_repo_create_and_get_by_email() {
     let db = test_pool().await;
     let email = format!("test-{}@kahf.test", uuid::Uuid::new_v4());
 
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "argon2hash", "Test User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "argon2hash", "Test", "User")
         .await
         .unwrap();
     assert_eq!(user.email, email);
-    assert_eq!(user.name, "Test User");
+    assert_eq!(user.first_name, "Test");
+    assert_eq!(user.last_name, "User");
 
     let fetched = kahf_db::user_repo::get_user_by_email(db.pool(), &email)
         .await
@@ -329,7 +330,7 @@ async fn user_repo_get_by_id() {
     let db = test_pool().await;
     let email = format!("test-{}@kahf.test", uuid::Uuid::new_v4());
 
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "ID Test")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "ID", "Test")
         .await
         .unwrap();
 
@@ -345,9 +346,9 @@ async fn user_repo_duplicate_email_fails() {
     let db = test_pool().await;
     let email = format!("dup-{}@kahf.test", uuid::Uuid::new_v4());
 
-    kahf_db::user_repo::create_user(db.pool(), &email, "hash", "First").await.unwrap();
+    kahf_db::user_repo::create_user(db.pool(), &email, "hash", "First", "User").await.unwrap();
 
-    let result = kahf_db::user_repo::create_user(db.pool(), &email, "hash2", "Second").await;
+    let result = kahf_db::user_repo::create_user(db.pool(), &email, "hash2", "Second", "User").await;
     assert!(result.is_err(), "duplicate email should fail");
 }
 
@@ -363,16 +364,17 @@ async fn user_repo_update() {
     let db = test_pool().await;
     let email = format!("upd-{}@kahf.test", uuid::Uuid::new_v4());
 
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Old Name")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Old", "Name")
         .await
         .unwrap();
 
-    kahf_db::user_repo::update_user(db.pool(), user.id, "New Name", Some("https://avatar.url"))
+    kahf_db::user_repo::update_user(db.pool(), user.id, "New", "Name", Some("https://avatar.url"))
         .await
         .unwrap();
 
     let fetched = kahf_db::user_repo::get_user_by_id(db.pool(), user.id).await.unwrap().unwrap();
-    assert_eq!(fetched.name, "New Name");
+    assert_eq!(fetched.first_name, "New");
+    assert_eq!(fetched.last_name, "Name");
     assert_eq!(fetched.avatar_url.as_deref(), Some("https://avatar.url"));
 }
 
@@ -380,7 +382,7 @@ async fn user_repo_update() {
 async fn workspace_repo_create_adds_owner_member() {
     let db = test_pool().await;
     let email = format!("ws-{}@kahf.test", uuid::Uuid::new_v4());
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "WS Owner")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "WS", "Owner")
         .await
         .unwrap();
 
@@ -403,7 +405,7 @@ async fn workspace_repo_create_adds_owner_member() {
 async fn workspace_repo_get_by_slug() {
     let db = test_pool().await;
     let email = format!("slug-{}@kahf.test", uuid::Uuid::new_v4());
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Slug Test")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Slug", "Test")
         .await
         .unwrap();
 
@@ -423,7 +425,7 @@ async fn workspace_repo_get_by_slug() {
 async fn workspace_repo_duplicate_slug_fails() {
     let db = test_pool().await;
     let email = format!("dslug-{}@kahf.test", uuid::Uuid::new_v4());
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Dup Slug")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Dup", "Slug")
         .await
         .unwrap();
 
@@ -440,9 +442,9 @@ async fn workspace_repo_add_and_remove_member() {
     let owner_email = format!("own-{}@kahf.test", uuid::Uuid::new_v4());
     let member_email = format!("mem-{}@kahf.test", uuid::Uuid::new_v4());
 
-    let owner = kahf_db::user_repo::create_user(db.pool(), &owner_email, "hash", "Owner")
+    let owner = kahf_db::user_repo::create_user(db.pool(), &owner_email, "hash", "Owner", "User")
         .await.unwrap();
-    let member = kahf_db::user_repo::create_user(db.pool(), &member_email, "hash", "Member")
+    let member = kahf_db::user_repo::create_user(db.pool(), &member_email, "hash", "Member", "User")
         .await.unwrap();
 
     let slug = format!("member-test-{}", uuid::Uuid::new_v4());
@@ -466,7 +468,7 @@ async fn workspace_repo_add_and_remove_member() {
 async fn session_repo_create_and_get() {
     let db = test_pool().await;
     let email = format!("sess-{}@kahf.test", uuid::Uuid::new_v4());
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Sess User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Sess", "User")
         .await.unwrap();
 
     let expires = Utc::now() + chrono::Duration::hours(24);
@@ -486,7 +488,7 @@ async fn session_repo_create_and_get() {
 async fn session_repo_delete() {
     let db = test_pool().await;
     let email = format!("sdel-{}@kahf.test", uuid::Uuid::new_v4());
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Del Sess")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Del", "Sess")
         .await.unwrap();
 
     let expires = Utc::now() + chrono::Duration::hours(1);
@@ -503,7 +505,7 @@ async fn session_repo_delete() {
 async fn session_repo_delete_expired() {
     let db = test_pool().await;
     let email = format!("exp-{}@kahf.test", uuid::Uuid::new_v4());
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Exp Sess")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, "hash", "Exp", "Sess")
         .await.unwrap();
 
     let past = Utc::now() - chrono::Duration::hours(1);

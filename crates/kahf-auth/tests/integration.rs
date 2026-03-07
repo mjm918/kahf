@@ -2,8 +2,9 @@
 //!
 //! Tests cover password hashing, JWT token lifecycle, the OTP-based
 //! signup/verify flow, login (requires verified email), refresh,
-//! resend OTP, forgot/reset password, tenant-level invitations, and
-//! error paths including wrong passwords, expired tokens, duplicate
+//! resend OTP, forgot/reset password, tenant-level invitations, tenant
+//! creation during owner signup, first_name/last_name field handling,
+//! and error paths including wrong passwords, expired tokens, duplicate
 //! emails, invalid OTP codes, and unverified login attempts.
 
 use chrono::Duration;
@@ -45,9 +46,9 @@ async fn test_pool() -> DbPool {
     db
 }
 
-async fn create_verified_user(pool: &sqlx::PgPool, email: &str, password: &str, name: &str) {
+async fn create_verified_user(pool: &sqlx::PgPool, email: &str, password: &str, first_name: &str, last_name: &str) {
     let password_hash = hash_password(password).unwrap();
-    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, name)
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, first_name, last_name)
         .await
         .unwrap();
     kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
@@ -159,29 +160,79 @@ fn otp_generate_is_six_digits() {
 }
 
 #[tokio::test]
-async fn service_signup_returns_signup_response_without_tokens() {
+async fn service_signup_with_invite_returns_signup_response() {
     let db = test_pool().await;
     let mailer = NoopEmailSender;
-    let email = format!("signup-{}@kahf.test", Uuid::new_v4());
+    let inviter_email = format!("inviter-signup-{}@kahf.test", Uuid::new_v4());
+    let signup_email = format!("signup-{}@kahf.test", Uuid::new_v4());
 
-    let resp = service::signup(db.pool(), &mailer, &email, "strong-password-123", "Test User", None)
-        .await
-        .unwrap();
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "Signup").await;
+    let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
-    assert_eq!(resp.email, email);
+    service::invite_user(db.pool(), &mailer, inviter.id, &signup_email).await.unwrap();
+    let invitation = kahf_db::invite_repo::get_pending_by_email(db.pool(), &signup_email).await.unwrap().unwrap();
+
+    let resp = service::signup(
+        db.pool(), &mailer, &signup_email, "strong-password-123", "Test", "User", None, Some(&invitation.token),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp.email, signup_email);
     assert!(!resp.message.is_empty());
     assert!(!resp.user_id.is_nil());
 }
 
 #[tokio::test]
+async fn service_tenant_creation_via_repo() {
+    let db = test_pool().await;
+    let email = format!("tenant-owner-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Jane", "Doe")
+        .await
+        .unwrap();
+
+    let tenant = kahf_db::tenant_repo::create_tenant(db.pool(), "Acme Inc", user.id)
+        .await
+        .unwrap();
+
+    assert_eq!(tenant.company_name, "Acme Inc");
+    assert_eq!(tenant.owner_id, user.id);
+
+    let fetched = kahf_db::tenant_repo::get_tenant_by_owner(db.pool(), user.id)
+        .await
+        .unwrap()
+        .expect("tenant should exist for owner");
+
+    assert_eq!(fetched.id, tenant.id);
+    assert_eq!(fetched.company_name, "Acme Inc");
+}
+
+#[tokio::test]
+async fn service_signup_stores_first_and_last_name() {
+    let db = test_pool().await;
+    let email = format!("names-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("strong-password-123").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Alice", "Smith")
+        .await
+        .unwrap();
+
+    assert_eq!(user.first_name, "Alice");
+    assert_eq!(user.last_name, "Smith");
+    assert_eq!(user.full_name(), "Alice Smith");
+}
+
+#[tokio::test]
 async fn service_signup_duplicate_email_fails() {
     let db = test_pool().await;
-    let mailer = NoopEmailSender;
     let email = format!("dup-signup-{}@kahf.test", Uuid::new_v4());
 
-    service::signup(db.pool(), &mailer, &email, "pass1", "User 1", None).await.unwrap();
+    let password_hash = hash_password("pass1").unwrap();
+    kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "User", "One").await.unwrap();
 
-    let result = service::signup(db.pool(), &mailer, &email, "pass2", "User 2", None).await;
+    let result = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "User", "Two").await;
     assert!(result.is_err(), "duplicate email signup should fail");
 }
 
@@ -192,7 +243,7 @@ async fn service_verify_otp_success() {
     let email = format!("verify-otp-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("test-pass").unwrap();
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "OTP User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "OTP", "User")
         .await
         .unwrap();
 
@@ -208,6 +259,8 @@ async fn service_verify_otp_success() {
 
     assert_eq!(resp.email, email);
     assert_eq!(resp.user_id, user.id);
+    assert_eq!(resp.first_name, "OTP");
+    assert_eq!(resp.last_name, "User");
     assert!(!resp.access_token.is_empty());
     assert!(!resp.refresh_token.is_empty());
 
@@ -223,7 +276,7 @@ async fn service_verify_otp_wrong_code_fails() {
     let email = format!("bad-otp-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("test-pass").unwrap();
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Bad OTP User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Bad", "OTP")
         .await
         .unwrap();
 
@@ -243,7 +296,7 @@ async fn service_verify_otp_expired_code_fails() {
     let email = format!("exp-otp-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("test-pass").unwrap();
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Expired OTP User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Expired", "OTP")
         .await
         .unwrap();
 
@@ -262,7 +315,7 @@ async fn service_verify_otp_already_verified_fails() {
     let jwt = test_jwt_config();
     let email = format!("already-verified-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "test-pass", "Already Verified").await;
+    create_verified_user(db.pool(), &email, "test-pass", "Already", "Verified").await;
 
     let result = service::verify_otp(db.pool(), &jwt, &email, "123456").await;
     assert!(result.is_err(), "already verified email should fail");
@@ -275,7 +328,7 @@ async fn service_verify_otp_used_code_fails() {
     let email = format!("used-otp-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("test-pass").unwrap();
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Used OTP User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Used", "OTP")
         .await
         .unwrap();
 
@@ -288,7 +341,7 @@ async fn service_verify_otp_used_code_fails() {
     service::verify_otp(db.pool(), &jwt, &email, &otp_code).await.unwrap();
 
     let email2 = format!("used-otp2-{}@kahf.test", Uuid::new_v4());
-    let user2 = kahf_db::user_repo::create_user(db.pool(), &email2, &password_hash, "Used OTP User 2")
+    let user2 = kahf_db::user_repo::create_user(db.pool(), &email2, &password_hash, "Used", "OTP2")
         .await
         .unwrap();
     let expires_at2 = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
@@ -307,10 +360,12 @@ async fn service_login_success_verified_email() {
     let config = test_jwt_config();
     let email = format!("login-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "my-password", "Login User").await;
+    create_verified_user(db.pool(), &email, "my-password", "Login", "User").await;
 
     let resp = service::login(db.pool(), &config, &email, "my-password").await.unwrap();
     assert_eq!(resp.email, email);
+    assert_eq!(resp.first_name, "Login");
+    assert_eq!(resp.last_name, "User");
     assert!(!resp.access_token.is_empty());
 }
 
@@ -321,7 +376,7 @@ async fn service_login_unverified_email_fails() {
     let email = format!("unverified-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("my-password").unwrap();
-    kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Unverified User")
+    kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Unverified", "User")
         .await
         .unwrap();
 
@@ -335,7 +390,7 @@ async fn service_login_wrong_password_fails() {
     let config = test_jwt_config();
     let email = format!("badpass-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "correct-password", "User").await;
+    create_verified_user(db.pool(), &email, "correct-password", "Bad", "Pass").await;
 
     let result = service::login(db.pool(), &config, &email, "wrong-password").await;
     assert!(result.is_err(), "wrong password should fail login");
@@ -356,7 +411,7 @@ async fn service_refresh_issues_new_access_token() {
     let config = test_jwt_config();
     let email = format!("refresh-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "pass", "Refresh User").await;
+    create_verified_user(db.pool(), &email, "pass", "Refresh", "User").await;
 
     let login_resp = service::login(db.pool(), &config, &email, "pass").await.unwrap();
 
@@ -374,7 +429,7 @@ async fn service_refresh_with_access_token_fails() {
     let config = test_jwt_config();
     let email = format!("ref-bad-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "pass", "User").await;
+    create_verified_user(db.pool(), &email, "pass", "Ref", "Bad").await;
 
     let resp = service::login(db.pool(), &config, &email, "pass").await.unwrap();
 
@@ -399,7 +454,7 @@ async fn service_resend_otp_invalidates_old_codes() {
     let email = format!("resend-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("test-pass").unwrap();
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Resend User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Resend", "User")
         .await
         .unwrap();
 
@@ -421,7 +476,7 @@ async fn service_resend_otp_already_verified_fails() {
     let mailer = NoopEmailSender;
     let email = format!("resend-verified-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "test-pass", "Verified Resend").await;
+    create_verified_user(db.pool(), &email, "test-pass", "Verified", "Resend").await;
 
     let result = service::resend_otp(db.pool(), &mailer, &email).await;
     assert!(result.is_err(), "resend OTP for verified email should fail");
@@ -433,7 +488,7 @@ async fn otp_repo_invalidate_all_user_otps() {
     let email = format!("inval-otp-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("test-pass").unwrap();
-    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Inval OTP User")
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Inval", "OTP")
         .await
         .unwrap();
 
@@ -455,7 +510,7 @@ async fn service_forgot_password_returns_success_for_existing_user() {
     let mailer = NoopEmailSender;
     let email = format!("forgot-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "old-password", "Forgot User").await;
+    create_verified_user(db.pool(), &email, "old-password", "Forgot", "User").await;
 
     let resp = service::forgot_password(db.pool(), &mailer, &email).await.unwrap();
     assert!(!resp.message.is_empty());
@@ -477,7 +532,7 @@ async fn service_forgot_password_ignores_unverified_user() {
     let email = format!("unverified-forgot-{}@kahf.test", Uuid::new_v4());
 
     let password_hash = hash_password("pass").unwrap();
-    kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Unverified").await.unwrap();
+    kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Unverified", "Forgot").await.unwrap();
 
     let resp = service::forgot_password(db.pool(), &mailer, &email).await.unwrap();
     assert!(!resp.message.is_empty());
@@ -490,7 +545,7 @@ async fn service_reset_password_success() {
     let config = test_jwt_config();
     let email = format!("reset-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "old-password", "Reset User").await;
+    create_verified_user(db.pool(), &email, "old-password", "Reset", "User").await;
 
     service::forgot_password(db.pool(), &mailer, &email).await.unwrap();
 
@@ -519,7 +574,7 @@ async fn service_reset_password_wrong_code_fails() {
     let mailer = NoopEmailSender;
     let email = format!("reset-bad-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &email, "old-password", "Reset Bad User").await;
+    create_verified_user(db.pool(), &email, "old-password", "Reset", "Bad").await;
 
     service::forgot_password(db.pool(), &mailer, &email).await.unwrap();
 
@@ -542,7 +597,7 @@ async fn service_invite_user_success() {
     let inviter_email = format!("inviter-{}@kahf.test", Uuid::new_v4());
     let invitee_email = format!("invitee-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter").await;
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "User").await;
     let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
     let resp = service::invite_user(db.pool(), &mailer, inviter.id, &invitee_email).await.unwrap();
@@ -557,8 +612,8 @@ async fn service_invite_existing_user_fails() {
     let inviter_email = format!("inviter2-{}@kahf.test", Uuid::new_v4());
     let existing_email = format!("existing-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter").await;
-    create_verified_user(db.pool(), &existing_email, "pass", "Existing").await;
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "Two").await;
+    create_verified_user(db.pool(), &existing_email, "pass", "Existing", "User").await;
     let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
     let result = service::invite_user(db.pool(), &mailer, inviter.id, &existing_email).await;
@@ -572,7 +627,7 @@ async fn service_invite_duplicate_pending_fails() {
     let inviter_email = format!("inviter3-{}@kahf.test", Uuid::new_v4());
     let invitee_email = format!("invitee3-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter").await;
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "Three").await;
     let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
     service::invite_user(db.pool(), &mailer, inviter.id, &invitee_email).await.unwrap();
@@ -587,7 +642,7 @@ async fn service_validate_invite_success() {
     let inviter_email = format!("inviter4-{}@kahf.test", Uuid::new_v4());
     let invitee_email = format!("invitee4-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter").await;
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "Four").await;
     let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
     service::invite_user(db.pool(), &mailer, inviter.id, &invitee_email).await.unwrap();
@@ -612,14 +667,14 @@ async fn service_signup_with_invite_token_success() {
     let inviter_email = format!("inviter5-{}@kahf.test", Uuid::new_v4());
     let invitee_email = format!("invitee5-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter").await;
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "Five").await;
     let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
     service::invite_user(db.pool(), &mailer, inviter.id, &invitee_email).await.unwrap();
     let invitation = kahf_db::invite_repo::get_pending_by_email(db.pool(), &invitee_email).await.unwrap().unwrap();
 
     let resp = service::signup(
-        db.pool(), &mailer, &invitee_email, "new-pass", "Invitee", Some(&invitation.token),
+        db.pool(), &mailer, &invitee_email, "new-pass", "Invitee", "Five", None, Some(&invitation.token),
     ).await.unwrap();
 
     assert_eq!(resp.email, invitee_email);
@@ -634,7 +689,7 @@ async fn service_signup_with_wrong_invite_token_fails() {
     let mailer = NoopEmailSender;
     let email = format!("bad-invite-{}@kahf.test", Uuid::new_v4());
 
-    let result = service::signup(db.pool(), &mailer, &email, "pass", "User", Some("bad-token")).await;
+    let result = service::signup(db.pool(), &mailer, &email, "pass", "Bad", "Invite", None, Some("bad-token")).await;
     assert!(result.is_err(), "signup with invalid invite token should fail");
 }
 
@@ -646,14 +701,60 @@ async fn service_signup_with_mismatched_invite_email_fails() {
     let invitee_email = format!("invitee6-{}@kahf.test", Uuid::new_v4());
     let wrong_email = format!("wrong-{}@kahf.test", Uuid::new_v4());
 
-    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter").await;
+    create_verified_user(db.pool(), &inviter_email, "pass", "Inviter", "Six").await;
     let inviter = kahf_db::user_repo::get_user_by_email(db.pool(), &inviter_email).await.unwrap().unwrap();
 
     service::invite_user(db.pool(), &mailer, inviter.id, &invitee_email).await.unwrap();
     let invitation = kahf_db::invite_repo::get_pending_by_email(db.pool(), &invitee_email).await.unwrap().unwrap();
 
     let result = service::signup(
-        db.pool(), &mailer, &wrong_email, "pass", "Wrong User", Some(&invitation.token),
+        db.pool(), &mailer, &wrong_email, "pass", "Wrong", "User", None, Some(&invitation.token),
     ).await;
     assert!(result.is_err(), "signup with mismatched email should fail");
+}
+
+#[tokio::test]
+async fn tenant_repo_get_by_id() {
+    let db = test_pool().await;
+    let email = format!("tenant-id-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Tenant", "ID")
+        .await
+        .unwrap();
+
+    let tenant = kahf_db::tenant_repo::create_tenant(db.pool(), "ID Corp", user.id)
+        .await
+        .unwrap();
+
+    let fetched = kahf_db::tenant_repo::get_tenant_by_id(db.pool(), tenant.id)
+        .await
+        .unwrap()
+        .expect("tenant should exist");
+
+    assert_eq!(fetched.company_name, "ID Corp");
+    assert_eq!(fetched.owner_id, user.id);
+}
+
+#[tokio::test]
+async fn tenant_repo_get_nonexistent_returns_none() {
+    let db = test_pool().await;
+
+    let result = kahf_db::tenant_repo::get_tenant_by_id(db.pool(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn user_full_name_helper() {
+    let db = test_pool().await;
+    let email = format!("fullname-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "John", "Doe")
+        .await
+        .unwrap();
+
+    assert_eq!(user.full_name(), "John Doe");
 }

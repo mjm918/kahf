@@ -17,6 +17,7 @@
 //! - `crdt_repo` — CRDT document snapshot save/load
 //! - `otp_repo` — Email OTP create, validate, invalidate
 //! - `invite_repo` — Tenant-level invitation create, validate, accept, cancel
+//! - `tenant_repo` — Tenant create, get by owner/id
 
 pub mod pool;
 pub mod event_store;
@@ -27,5 +28,6 @@ pub mod session_repo;
 pub mod crdt_repo;
 pub mod otp_repo;
 pub mod invite_repo;
+pub mod tenant_repo;
 
 pub use pool::DbPool;

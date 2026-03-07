@@ -9,7 +9,8 @@ FILE_PATH=$(echo "$TOOL_INPUT" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    print(data.get('file_path', ''))
+    fp = data.get('file_path', '') or (data.get('tool_input') or {}).get('file_path', '')
+    print(fp)
 except:
     pass
 " 2>/dev/null)

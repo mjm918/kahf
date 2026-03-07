@@ -6,27 +6,41 @@
  * On success, shows a toast notification and navigates to login.
  */
 
-import { Component, signal, inject } from '@angular/core';
+import { Component, signal, inject, ViewChild, AfterViewInit } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { TextBoxModule } from '@syncfusion/ej2-angular-inputs';
+import { TextBoxModule, TextBoxComponent } from '@syncfusion/ej2-angular-inputs';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
+import { MessageModule } from '@syncfusion/ej2-angular-notifications';
 import { AuthService } from '../../core/services/auth.service';
 import { AuthLayout } from '../auth-layout/auth-layout';
 
 @Component({
   selector: 'app-reset-password',
   standalone: true,
-  imports: [FormsModule, TextBoxModule, ButtonModule, RouterLink, AuthLayout],
+  imports: [FormsModule, TextBoxModule, ButtonModule, MessageModule, RouterLink, AuthLayout],
   templateUrl: './reset-password.html',
 })
-export class ResetPassword {
+export class ResetPassword implements AfterViewInit {
+  @ViewChild('passwordBox') passwordBox!: TextBoxComponent;
   email = '';
   code = '';
   newPassword = '';
   error = signal('');
   success = signal('');
   loading = signal(false);
+
+  ngAfterViewInit(): void {
+    if (this.passwordBox) {
+      this.passwordBox.addIcon('append', 'e-icons e-eye');
+      const el = this.passwordBox.element as HTMLInputElement;
+      el.parentElement!
+        .querySelector('.e-eye')!
+        .addEventListener('click', () => {
+          el.type = el.type === 'password' ? 'text' : 'password';
+        });
+    }
+  }
 
   private auth = inject(AuthService);
   private router = inject(Router);

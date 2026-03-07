@@ -58,6 +58,7 @@ struct TestContext {
     app: axum::Router,
     jwt: JwtConfig,
     pool: sqlx::PgPool,
+    mailer: Arc<dyn EmailSender>,
 }
 
 async fn test_ctx() -> TestContext {
@@ -66,8 +67,9 @@ async fn test_ctx() -> TestContext {
     let pool = db.pool().clone();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
     let state = make_state(db, jwt.clone()).await;
+    let mailer: Arc<dyn EmailSender> = Arc::new(NoopEmailSender);
     let app = kahf_server::build_app(state, jwt.clone());
-    TestContext { app, jwt, pool }
+    TestContext { app, jwt, pool, mailer }
 }
 
 #[allow(dead_code)]
@@ -95,10 +97,11 @@ async fn create_verified_user(
     jwt: &JwtConfig,
     email: &str,
     password: &str,
-    name: &str,
+    first_name: &str,
+    last_name: &str,
 ) -> Value {
     let password_hash = kahf_auth::password::hash_password(password).unwrap();
-    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, name)
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, first_name, last_name)
         .await
         .unwrap();
     kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
@@ -111,12 +114,13 @@ async fn create_verified_user(
         "refresh_token": refresh_token,
         "user_id": user.id,
         "email": email,
-        "name": name
+        "first_name": first_name,
+        "last_name": last_name
     })
 }
 
-async fn signup_ctx(ctx: &TestContext, email: &str, password: &str, name: &str) -> Value {
-    create_verified_user(&ctx.pool, &ctx.jwt, email, password, name).await
+async fn signup_ctx(ctx: &TestContext, email: &str, password: &str, first_name: &str, last_name: &str) -> Value {
+    create_verified_user(&ctx.pool, &ctx.jwt, email, password, first_name, last_name).await
 }
 
 async fn login(app: &axum::Router, email: &str, password: &str) -> Value {
@@ -163,10 +167,24 @@ async fn test_health_check() {
 }
 
 #[tokio::test]
-async fn test_signup_creates_user() {
+async fn test_signup_creates_user_with_invite() {
     let ctx = test_ctx().await;
-    let email = unique_email();
-    let body = serde_json::json!({ "email": email, "password": "StrongPass1!", "name": "Test User" });
+    let inviter_email = unique_email();
+    let signup_email = unique_email();
+
+    create_verified_user(&ctx.pool, &ctx.jwt, &inviter_email, "InvPass1!", "Inviter", "Test").await;
+    let inviter = kahf_db::user_repo::get_user_by_email(&ctx.pool, &inviter_email).await.unwrap().unwrap();
+
+    kahf_auth::service::invite_user(&ctx.pool, &*ctx.mailer, inviter.id, &signup_email).await.unwrap();
+    let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, &signup_email).await.unwrap().unwrap();
+
+    let body = serde_json::json!({
+        "email": signup_email,
+        "password": "StrongPass1!",
+        "first_name": "Test",
+        "last_name": "User",
+        "invite_token": invitation.token
+    });
     let resp = ctx
         .app
         .clone()
@@ -184,17 +202,31 @@ async fn test_signup_creates_user() {
     assert_eq!(resp.status(), StatusCode::CREATED);
     let json = body_json(resp).await;
     assert!(json["user_id"].is_string());
-    assert_eq!(json["email"], email);
+    assert_eq!(json["email"], signup_email);
     assert!(json["message"].is_string());
 }
 
 #[tokio::test]
 async fn test_signup_duplicate_email_fails() {
     let ctx = test_ctx().await;
+    let inviter_email = unique_email();
     let email = unique_email();
-    signup_ctx(&ctx, &email, "StrongPass1!", "User One").await;
 
-    let body = serde_json::json!({ "email": email, "password": "StrongPass1!", "name": "User Two" });
+    create_verified_user(&ctx.pool, &ctx.jwt, &inviter_email, "InvPass1!", "Inviter", "Dup").await;
+    let inviter = kahf_db::user_repo::get_user_by_email(&ctx.pool, &inviter_email).await.unwrap().unwrap();
+
+    kahf_auth::service::invite_user(&ctx.pool, &*ctx.mailer, inviter.id, &email).await.unwrap();
+    let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, &email).await.unwrap().unwrap();
+
+    signup_ctx(&ctx, &email, "StrongPass1!", "User", "One").await;
+
+    let body = serde_json::json!({
+        "email": email,
+        "password": "StrongPass1!",
+        "first_name": "User",
+        "last_name": "Two",
+        "invite_token": invitation.token
+    });
     let resp = ctx
         .app
         .oneshot(
@@ -215,7 +247,7 @@ async fn test_signup_duplicate_email_fails() {
 async fn test_login_success() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    signup_ctx(&ctx, &email, "MyPassword1!", "Login User").await;
+    signup_ctx(&ctx, &email, "MyPassword1!", "Login", "User").await;
     let json = login(&ctx.app, &email, "MyPassword1!").await;
 
     assert!(json["access_token"].is_string());
@@ -227,7 +259,7 @@ async fn test_login_success() {
 async fn test_login_wrong_password() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    signup_ctx(&ctx, &email, "CorrectPass1!", "Wrong Pass").await;
+    signup_ctx(&ctx, &email, "CorrectPass1!", "Wrong", "Pass").await;
 
     let body = serde_json::json!({ "email": email, "password": "WrongPass1!" });
     let resp = ctx
@@ -270,7 +302,7 @@ async fn test_login_nonexistent_user() {
 async fn test_refresh_token() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "RefreshMe1!", "Refresh User").await;
+    let signup_json = signup_ctx(&ctx, &email, "RefreshMe1!", "Refresh", "User").await;
     let refresh_token = signup_json["refresh_token"].as_str().unwrap();
 
     let body = serde_json::json!({ "refresh_token": refresh_token });
@@ -334,7 +366,7 @@ async fn test_logout() {
 async fn test_get_me() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "GetMe1234!", "Me User").await;
+    let signup_json = signup_ctx(&ctx, &email, "GetMe1234!", "Me", "User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let resp = ctx
@@ -352,7 +384,8 @@ async fn test_get_me() {
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp).await;
     assert_eq!(json["email"], email);
-    assert_eq!(json["name"], "Me User");
+    assert_eq!(json["first_name"], "Me");
+    assert_eq!(json["last_name"], "User");
 }
 
 #[tokio::test]
@@ -376,10 +409,10 @@ async fn test_get_me_without_auth() {
 async fn test_update_me() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "UpdateMe1!", "Old Name").await;
+    let signup_json = signup_ctx(&ctx, &email, "UpdateMe1!", "Old", "Name").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
-    let body = serde_json::json!({ "name": "New Name", "avatar_url": "https://example.com/avatar.png" });
+    let body = serde_json::json!({ "first_name": "New", "last_name": "Name", "avatar_url": "https://example.com/avatar.png" });
     let resp = ctx
         .app
         .oneshot(
@@ -396,7 +429,8 @@ async fn test_update_me() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp).await;
-    assert_eq!(json["name"], "New Name");
+    assert_eq!(json["first_name"], "New");
+    assert_eq!(json["last_name"], "Name");
     assert_eq!(json["avatar_url"], "https://example.com/avatar.png");
 }
 
@@ -404,7 +438,7 @@ async fn test_update_me() {
 async fn test_create_workspace() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "WorkspacePass1!", "WS User").await;
+    let signup_json = signup_ctx(&ctx, &email, "WorkspacePass1!", "WS", "User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
@@ -433,7 +467,7 @@ async fn test_create_workspace() {
 async fn test_list_workspaces() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "ListWS1!", "List User").await;
+    let signup_json = signup_ctx(&ctx, &email, "ListWS1!", "List", "User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
@@ -474,7 +508,7 @@ async fn test_list_workspaces() {
 async fn test_get_workspace_by_id() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "GetWS1!", "Get WS User").await;
+    let signup_json = signup_ctx(&ctx, &email, "GetWS1!", "Get", "WSUser").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
@@ -517,7 +551,7 @@ async fn test_get_workspace_by_id() {
 async fn test_get_nonexistent_workspace() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "NoWS1!", "No WS User").await;
+    let signup_json = signup_ctx(&ctx, &email, "NoWS1!", "No", "WSUser").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let fake_id = Uuid::new_v4();
@@ -541,12 +575,12 @@ async fn test_workspace_add_and_remove_member() {
     let ctx = test_ctx().await;
 
     let email1 = unique_email();
-    let signup1 = signup_ctx(&ctx, &email1, "Owner1!", "Owner").await;
+    let signup1 = signup_ctx(&ctx, &email1, "Owner1!", "Owner", "User").await;
     let token1 = signup1["access_token"].as_str().unwrap();
     let user1_id = signup1["user_id"].as_str().unwrap();
 
     let email2 = unique_email();
-    let signup2 = signup_ctx(&ctx, &email2, "Member1!", "Member").await;
+    let signup2 = signup_ctx(&ctx, &email2, "Member1!", "Member", "User").await;
     let user2_id = signup2["user_id"].as_str().unwrap();
 
     let slug = unique_slug();
@@ -607,7 +641,7 @@ async fn test_workspace_add_and_remove_member() {
 async fn test_create_entity() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "Entity1!", "Entity User").await;
+    let signup_json = signup_ctx(&ctx, &email, "Entity1!", "Entity", "User").await;
     let user_id_str = signup_json["user_id"].as_str().unwrap();
     let user_id = uuid::Uuid::parse_str(user_id_str).unwrap();
 
@@ -664,12 +698,12 @@ async fn test_create_entity() {
 async fn test_get_entity() {
     let db = DbPool::connect(&database_url()).await.unwrap();
     let user_id = Uuid::new_v4();
-    kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Get Entity User").await.unwrap();
+    kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Get", "EntityUser").await.unwrap();
 
     let slug = unique_slug();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
 
-    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Get Entity User 2").await.unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Get", "EntityUser2").await.unwrap();
     let ws = kahf_db::workspace_repo::create_workspace(db.pool(), "Get Entity WS", &slug, user.id).await.unwrap();
 
     let access_token = kahf_auth::jwt::issue_access_token(
@@ -723,7 +757,7 @@ async fn test_get_entity() {
 async fn test_update_entity() {
     let db = DbPool::connect(&database_url()).await.unwrap();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
-    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Update Entity User").await.unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Update", "EntityUser").await.unwrap();
     let ws = kahf_db::workspace_repo::create_workspace(db.pool(), "Update Entity WS", &unique_slug(), user.id).await.unwrap();
     let token = kahf_auth::jwt::issue_access_token(&jwt, user.id, Some(ws.id), Some("owner".into())).unwrap();
 
@@ -772,7 +806,7 @@ async fn test_update_entity() {
 async fn test_delete_entity() {
     let db = DbPool::connect(&database_url()).await.unwrap();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
-    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Delete Entity User").await.unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "Delete", "EntityUser").await.unwrap();
     let ws = kahf_db::workspace_repo::create_workspace(db.pool(), "Delete Entity WS", &unique_slug(), user.id).await.unwrap();
     let token = kahf_auth::jwt::issue_access_token(&jwt, user.id, Some(ws.id), Some("owner".into())).unwrap();
 
@@ -816,7 +850,7 @@ async fn test_delete_entity() {
 async fn test_entity_history() {
     let db = DbPool::connect(&database_url()).await.unwrap();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
-    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "History User").await.unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "History", "User").await.unwrap();
     let ws = kahf_db::workspace_repo::create_workspace(db.pool(), "History WS", &unique_slug(), user.id).await.unwrap();
     let token = kahf_auth::jwt::issue_access_token(&jwt, user.id, Some(ws.id), Some("owner".into())).unwrap();
 
@@ -878,7 +912,7 @@ async fn test_entity_history() {
 async fn test_list_entities() {
     let db = DbPool::connect(&database_url()).await.unwrap();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
-    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "List Entity User").await.unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "List", "EntityUser").await.unwrap();
     let ws = kahf_db::workspace_repo::create_workspace(db.pool(), "List Entity WS", &unique_slug(), user.id).await.unwrap();
     let token = kahf_auth::jwt::issue_access_token(&jwt, user.id, Some(ws.id), Some("owner".into())).unwrap();
 
@@ -923,7 +957,7 @@ async fn test_list_entities() {
 async fn test_get_nonexistent_entity() {
     let db = DbPool::connect(&database_url()).await.unwrap();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
-    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "NoEntity User").await.unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &unique_email(), "$argon2id$v=19$m=19456,t=2,p=1$fake$fakehashvalue00000000000000000000", "NoEntity", "User").await.unwrap();
     let token = kahf_auth::jwt::issue_access_token(&jwt, user.id, None, None).unwrap();
 
     let state = make_state(db, jwt.clone()).await;
@@ -985,7 +1019,7 @@ async fn test_entity_requires_auth() {
 async fn test_workspace_duplicate_slug_fails() {
     let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup_ctx(&ctx, &email, "DupSlug1!", "Dup Slug User").await;
+    let signup_json = signup_ctx(&ctx, &email, "DupSlug1!", "Dup", "SlugUser").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
@@ -1048,7 +1082,7 @@ async fn ws_signup_and_create_workspace(
     email: &str,
 ) -> (String, Uuid) {
     let password_hash = kahf_auth::password::hash_password("TestPass1!").unwrap();
-    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, "WS Test User")
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, "WS", "TestUser")
         .await
         .unwrap();
     kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
@@ -1132,7 +1166,7 @@ async fn ws_signup_and_join_workspace(
     owner_token: &str,
 ) -> (String, Uuid) {
     let password_hash = kahf_auth::password::hash_password("TestPass1!").unwrap();
-    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, "WS Test User 2")
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, "WS", "TestUser2")
         .await
         .unwrap();
     kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
@@ -1584,7 +1618,7 @@ async fn test_rbac_guest_can_only_read() {
 
     let guest_email = unique_email();
     let guest_hash = kahf_auth::password::hash_password("GuestPass1!").unwrap();
-    let guest_user = kahf_db::user_repo::create_user(&pool, &guest_email, &guest_hash, "Guest User")
+    let guest_user = kahf_db::user_repo::create_user(&pool, &guest_email, &guest_hash, "Guest", "User")
         .await
         .unwrap();
     kahf_db::user_repo::mark_email_verified(&pool, guest_user.id).await.unwrap();
@@ -1646,7 +1680,7 @@ async fn test_rbac_no_role_gets_forbidden() {
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
     let outsider_hash = kahf_auth::password::hash_password("Outsider1!").unwrap();
-    let outsider_user = kahf_db::user_repo::create_user(&pool, &outsider_email, &outsider_hash, "Outsider")
+    let outsider_user = kahf_db::user_repo::create_user(&pool, &outsider_email, &outsider_hash, "Outsider", "User")
         .await
         .unwrap();
     kahf_db::user_repo::mark_email_verified(&pool, outsider_user.id).await.unwrap();

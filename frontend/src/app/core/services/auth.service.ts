@@ -7,8 +7,9 @@
  * (session-only). Exposes reactive `isAuthenticated` and `currentUser`
  * signals for use in components and guards. `registrationOpen` checks
  * whether the system allows open registration (only when no users
- * exist yet). All methods delegate to the backend API via the shared
- * Axios instance.
+ * exist yet). Signup accepts first_name, last_name, optional
+ * company_name (owner registration), and optional invite_token. All
+ * methods delegate to the backend API via the shared Axios instance.
  */
 
 import { Injectable, signal, computed } from '@angular/core';
@@ -18,7 +19,8 @@ import { api } from './api.service';
 export interface AuthUser {
   user_id: string;
   email: string;
-  name: string;
+  first_name: string;
+  last_name: string;
 }
 
 export interface AuthResponse {
@@ -26,7 +28,8 @@ export interface AuthResponse {
   refresh_token: string;
   user_id: string;
   email: string;
-  name: string;
+  first_name: string;
+  last_name: string;
 }
 
 export interface SignupResponse {
@@ -49,8 +52,15 @@ export class AuthService {
     return data.open;
   }
 
-  async signup(email: string, password: string, name: string, inviteToken?: string): Promise<SignupResponse> {
-    const { data } = await api.post<SignupResponse>('/auth/signup', { email, password, name, invite_token: inviteToken });
+  async signup(email: string, password: string, firstName: string, lastName: string, companyName?: string, inviteToken?: string): Promise<SignupResponse> {
+    const { data } = await api.post<SignupResponse>('/auth/signup', {
+      email,
+      password,
+      first_name: firstName,
+      last_name: lastName,
+      company_name: companyName,
+      invite_token: inviteToken,
+    });
     return data;
   }
 
@@ -112,7 +122,7 @@ export class AuthService {
     const storage = this.getStorage();
     storage.setItem('access_token', data.access_token);
     storage.setItem('refresh_token', data.refresh_token);
-    const u: AuthUser = { user_id: data.user_id, email: data.email, name: data.name };
+    const u: AuthUser = { user_id: data.user_id, email: data.email, first_name: data.first_name, last_name: data.last_name };
     storage.setItem('user', JSON.stringify(u));
     this.user.set(u);
   }

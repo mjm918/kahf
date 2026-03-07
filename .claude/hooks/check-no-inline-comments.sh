@@ -11,7 +11,8 @@ FILE_PATH=$(echo "$TOOL_INPUT" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    print(data.get('file_path', ''))
+    fp = data.get('file_path', '') or (data.get('tool_input') or {}).get('file_path', '')
+    print(fp)
 except:
     pass
 " 2>/dev/null)
@@ -32,7 +33,8 @@ CONTENT=$(echo "$TOOL_INPUT" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    content = data.get('content', '') or data.get('new_string', '')
+    inner = data.get('tool_input') or data
+    content = inner.get('content', '') or inner.get('new_string', '')
     print(content)
 except:
     pass

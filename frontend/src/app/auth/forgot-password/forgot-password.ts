@@ -12,13 +12,14 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TextBoxModule } from '@syncfusion/ej2-angular-inputs';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
+import { MessageModule } from '@syncfusion/ej2-angular-notifications';
 import { AuthService } from '../../core/services/auth.service';
 import { AuthLayout } from '../auth-layout/auth-layout';
 
 @Component({
   selector: 'app-forgot-password',
   standalone: true,
-  imports: [FormsModule, TextBoxModule, ButtonModule, RouterLink, AuthLayout],
+  imports: [FormsModule, TextBoxModule, ButtonModule, MessageModule, RouterLink, AuthLayout],
   templateUrl: './forgot-password.html',
 })
 export class ForgotPassword {

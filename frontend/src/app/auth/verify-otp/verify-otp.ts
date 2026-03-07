@@ -12,13 +12,14 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { OtpInputModule } from '@syncfusion/ej2-angular-inputs';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
+import { MessageModule } from '@syncfusion/ej2-angular-notifications';
 import { AuthService } from '../../core/services/auth.service';
 import { AuthLayout } from '../auth-layout/auth-layout';
 
 @Component({
   selector: 'app-verify-otp',
   standalone: true,
-  imports: [FormsModule, OtpInputModule, ButtonModule, AuthLayout],
+  imports: [FormsModule, OtpInputModule, ButtonModule, MessageModule, AuthLayout],
   templateUrl: './verify-otp.html',
 })
 export class VerifyOtp implements OnInit, OnDestroy {

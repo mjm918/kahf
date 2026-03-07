@@ -5,10 +5,11 @@
 //! ## POST /api/auth/signup
 //!
 //! Creates a new user account and sends a 6-digit OTP to the provided
-//! email. Body: `{ email, password, name, invite_token? }`. Returns
-//! `{ user_id, email, message }`. Tokens are NOT returned — user must
-//! verify email first. Optional `invite_token` validates and accepts
-//! a pending invitation.
+//! email. Body: `{ email, password, first_name, last_name, company_name?,
+//! invite_token? }`. Returns `{ user_id, email, message }`. Tokens are
+//! NOT returned — user must verify email first. Optional `invite_token`
+//! validates and accepts a pending invitation. `company_name` is required
+//! for the first registration (owner).
 //!
 //! ## POST /api/auth/verify-otp
 //!
@@ -101,7 +102,9 @@ pub fn router() -> Router<AppState> {
 struct SignupRequest {
     email: String,
     password: String,
-    name: String,
+    first_name: String,
+    last_name: String,
+    company_name: Option<String>,
     invite_token: Option<String>,
 }
 
@@ -114,7 +117,9 @@ async fn signup(
         &*state.mailer,
         &body.email,
         &body.password,
-        &body.name,
+        &body.first_name,
+        &body.last_name,
+        body.company_name.as_deref(),
         body.invite_token.as_deref(),
     )
     .await?;

@@ -7,15 +7,15 @@
   </div>
 
   @if (registrationClosedMessage()) {
-    <div class="mb-2 p-1.5 rounded text-xs" style="background: var(--color-sf-warning-light-alt, #FFF4CE); color: var(--color-sf-warning, #797673)">
+    <ejs-message severity="Warning" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
       Registration is closed. New members can only join via invitation from the tenant owner.
-    </div>
+    </ejs-message>
   }
 
   @if (error()) {
-    <div class="mb-2 p-1.5 rounded text-xs" style="background: var(--color-sf-danger-light-alt); color: var(--color-sf-danger)">
+    <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
       {{ error() }}
-    </div>
+    </ejs-message>
   }
 
   <form (ngSubmit)="onSubmit()" class="flex flex-col gap-3">
@@ -28,10 +28,10 @@
       class="w-full"
     ></ejs-textbox>
     <ejs-textbox
+      #passwordBox
       [(ngModel)]="password"
       name="password"
       placeholder="Password"
-
       type="password"
       class="w-full"
     ></ejs-textbox>
