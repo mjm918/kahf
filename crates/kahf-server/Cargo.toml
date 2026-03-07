@@ -12,6 +12,7 @@ path = "src/main.rs"
 kahf-core = { workspace = true }
 kahf-db = { workspace = true }
 kahf-auth = { workspace = true }
+kahf-email = { workspace = true }
 kahf-rbac = { workspace = true }
 kahf-realtime = { path = "../kahf-realtime" }
 

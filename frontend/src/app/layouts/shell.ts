@@ -19,7 +19,7 @@ import { AuthService } from '../core/services/auth.service';
       <div class="e-card max-w-md w-full">
         <div class="e-card-header">
           <div class="e-card-header-title text-center">
-            <span class="text-xl font-semibold" style="color: var(--color-sf-primary)">Welcome to Kahf</span>
+            <span class="text-xl font-semibold" style="color: var(--color-sf-primary)">Welcome to KahfLane</span>
           </div>
         </div>
         <div class="e-card-content text-center">

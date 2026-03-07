@@ -55,4 +55,5 @@ tokio-cron-scheduler = "0.13"
 kahf-core = { path = "crates/kahf-core" }
 kahf-db = { path = "crates/kahf-db" }
 kahf-auth = { path = "crates/kahf-auth" }
+kahf-email = { path = "crates/kahf-email" }
 kahf-rbac = { path = "crates/kahf-rbac" }

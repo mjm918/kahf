@@ -1,6 +1,6 @@
-//! Kahf real-time layer.
+//! KahfLane real-time layer.
 //!
-//! Provides WebSocket-based real-time communication for the Kahf platform.
+//! Provides WebSocket-based real-time communication for the KahfLane platform.
 //! Handles live entity updates, CRDT document collaboration, presence
 //! tracking, and chat message routing.
 //!

@@ -1,7 +1,7 @@
 /**
  * Shared auth layout with split-panel design.
  *
- * Left panel: Azure blue branding with Kahf logo, tagline, and feature list.
+ * Left panel: Azure blue branding with KahfLane logo, tagline, and feature list.
  * Right panel: ng-content slot for the auth form. Left panel hides on mobile.
  */
 

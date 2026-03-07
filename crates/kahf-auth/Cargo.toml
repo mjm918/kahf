@@ -1,6 +1,6 @@
 [package]
 name = "kahf-auth"
-description = "Authentication layer for the Kahf platform: Argon2 hashing, JWT tokens, axum middleware"
+description = "Authentication layer for the KahfLane platform: Argon2 hashing, JWT tokens, axum middleware"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,12 +8,11 @@ license.workspace = true
 [dependencies]
 kahf-core = { workspace = true }
 kahf-db = { workspace = true }
+kahf-email = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 jsonwebtoken = { workspace = true }
 argon2 = { workspace = true }
-lettre = { workspace = true }
-rand = "0.9"
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

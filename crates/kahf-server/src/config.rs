@@ -9,7 +9,7 @@
 //! `3000`).
 
 use eyre::WrapErr;
-use kahf_auth::SmtpConfig;
+use kahf_email::SmtpConfig;
 
 pub struct Config {
     pub database_url: String,

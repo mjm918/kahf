@@ -1,4 +1,4 @@
-//! Kahf server binary entry point.
+//! KahfLane server binary entry point.
 //!
 //! Loads configuration from environment variables (with `.env` fallback),
 //! initializes tracing, connects to the database, runs migrations,
@@ -45,7 +45,7 @@ async fn main() -> eyre::Result<()> {
     let rbac = kahf_rbac::RbacEnforcer::new(&config.database_url).await?;
 
     let jwt = kahf_auth::JwtConfig::new(config.jwt_secret);
-    let mailer: Arc<dyn kahf_auth::EmailSender> = Arc::new(config.smtp);
+    let mailer: Arc<dyn kahf_email::EmailSender> = Arc::new(kahf_email::SmtpEmailSender::new(config.smtp)?);
     let hub = kahf_realtime::Hub::new(db.pool().clone());
     let event_bus = kahf_realtime::BroadcastEventBus::new(1024);
     let state = AppState::new(db, jwt.clone(), mailer, hub, event_bus, rbac);

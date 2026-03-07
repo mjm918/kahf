@@ -1,8 +1,8 @@
-# Kahf — Claude Code Configuration
+# KahfLane — Claude Code Configuration
 
 ## Project Overview
 
-Kahf is a Huly-equivalent project management platform. Rust modular monolith backend (axum, sqlx, yrs CRDT) + Angular 19 + Syncfusion EJ2 frontend. Azure Portal-style UI. bun as the ONLY frontend runtime/package manager. Event-sourced data model with PostgreSQL 17 + TimescaleDB. Self-hosted via Docker Compose.
+KahfLane is a Huly-equivalent project management platform. Rust modular monolith backend (axum, sqlx, yrs CRDT) + Angular 19 + Syncfusion EJ2 frontend. Azure Portal-style UI. bun as the ONLY frontend runtime/package manager. Event-sourced data model with PostgreSQL 17 + TimescaleDB. Self-hosted via Docker Compose.
 
 See `.claude/docs/plan/` for full architecture documents:
 - `ARCHITECTURE_DESIGN.md` — Decisions, schema, crate structure, API design

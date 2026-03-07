@@ -1,6 +1,6 @@
 [package]
 name = "kahf-core"
-description = "Domain types, traits, and error definitions for the Kahf platform"
+description = "Domain types, traits, and error definitions for the KahfLane platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

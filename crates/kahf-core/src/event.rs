@@ -1,6 +1,6 @@
 //! Event (transaction log) model.
 //!
-//! Every mutation in Kahf is recorded as an immutable event in the
+//! Every mutation in KahfLane is recorded as an immutable event in the
 //! `tx_log` TimescaleDB hypertable. Events are the source of truth;
 //! the `entities` table is a materialized projection.
 //!

@@ -1,7 +1,7 @@
 #!/bin/bash
-## Checks that React component files use Syncfusion components
+## Checks that Angular component files use Syncfusion components
 ## instead of custom UI implementations.
-## Runs as PostToolUse hook on Write/Edit operations for .tsx files.
+## Runs as PostToolUse hook on Write/Edit operations for .ts and .html files.
 
 TOOL_INPUT=$(cat)
 
@@ -19,7 +19,7 @@ if [ -z "$FILE_PATH" ]; then
 fi
 
 case "$FILE_PATH" in
-  *.tsx)
+  *.ts|*.html)
     ;;
   *)
     exit 0
@@ -27,7 +27,7 @@ case "$FILE_PATH" in
 esac
 
 case "$FILE_PATH" in
-  *test*|*spec*|*__tests__*)
+  *test*|*spec*|*.config.*|*.d.ts|*index.ts|*main.ts|*environments/*)
     exit 0
     ;;
 esac
@@ -39,30 +39,26 @@ fi
 CONTENT=$(cat "$FILE_PATH")
 WARNINGS=""
 
-if echo "$CONTENT" | grep -qE '<table|<Table[^A-Z]' && ! echo "$CONTENT" | grep -q '@syncfusion'; then
-  WARNINGS="$WARNINGS\n  - <table> found. Use Syncfusion GridComponent."
+if echo "$CONTENT" | grep -qE '<table[>\s]|<Table[^A-Z]' && ! echo "$CONTENT" | grep -qi 'syncfusion\|ejs-grid\|GridModule'; then
+  WARNINGS="$WARNINGS\n  - <table> found. Use Syncfusion ejs-grid (GridComponent)."
 fi
 
-if echo "$CONTENT" | grep -qE 'className=".*modal|className=".*dialog' && ! echo "$CONTENT" | grep -q '@syncfusion'; then
-  WARNINGS="$WARNINGS\n  - Custom modal/dialog found. Use Syncfusion DialogComponent."
+if echo "$CONTENT" | grep -qE 'class=".*modal|class=".*dialog' && ! echo "$CONTENT" | grep -qi 'syncfusion\|ejs-dialog\|DialogModule\|DialogUtility'; then
+  WARNINGS="$WARNINGS\n  - Custom modal/dialog found. Use Syncfusion ejs-dialog (DialogComponent)."
 fi
 
-if echo "$CONTENT" | grep -qE 'className=".*calendar' && ! echo "$CONTENT" | grep -q '@syncfusion'; then
-  WARNINGS="$WARNINGS\n  - Custom calendar found. Use Syncfusion ScheduleComponent."
+if echo "$CONTENT" | grep -qE 'class=".*calendar' && ! echo "$CONTENT" | grep -qi 'syncfusion\|ejs-schedule\|ScheduleModule'; then
+  WARNINGS="$WARNINGS\n  - Custom calendar found. Use Syncfusion ejs-schedule (ScheduleComponent)."
 fi
 
-if echo "$CONTENT" | grep -qE 'className=".*sidebar|className=".*nav-' && ! echo "$CONTENT" | grep -q '@syncfusion'; then
-  WARNINGS="$WARNINGS\n  - Custom sidebar/nav found. Use Syncfusion SidebarComponent."
-fi
-
-if echo "$CONTENT" | grep -qE 'contentEditable|contenteditable' && ! echo "$CONTENT" | grep -q '@syncfusion'; then
-  WARNINGS="$WARNINGS\n  - contentEditable found. Use Syncfusion RichTextEditorComponent."
+if echo "$CONTENT" | grep -qE 'contentEditable|contenteditable' && ! echo "$CONTENT" | grep -qi 'syncfusion\|ejs-richtexteditor\|RichTextEditorModule'; then
+  WARNINGS="$WARNINGS\n  - contentEditable found. Use Syncfusion ejs-richtexteditor."
 fi
 
 if [ -n "$WARNINGS" ]; then
   echo "WARNING: $FILE_PATH uses custom UI where Syncfusion components are required."
   echo -e "Issues:$WARNINGS"
-  echo "All UI MUST use Syncfusion EJ2 React components."
+  echo "All UI MUST use Syncfusion EJ2 Angular components."
   exit 1
 fi
 

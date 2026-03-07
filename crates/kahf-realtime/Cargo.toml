@@ -1,6 +1,6 @@
 [package]
 name = "kahf-realtime"
-description = "WebSocket hub, CRDT engine, event bus, and presence for the Kahf platform"
+description = "WebSocket hub, CRDT engine, event bus, and presence for the KahfLane platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

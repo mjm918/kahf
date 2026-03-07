@@ -1,4 +1,4 @@
-//! Domain error types for the Kahf platform.
+//! Domain error types for the KahfLane platform.
 //!
 //! `KahfError` covers the standard failure modes across all crates.
 //! It integrates with `eyre::Report` for rich error context via the

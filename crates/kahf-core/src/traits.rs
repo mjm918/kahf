@@ -1,6 +1,6 @@
 //! Core trait contracts.
 //!
-//! These traits define the boundaries between Kahf crates. Each trait
+//! These traits define the boundaries between KahfLane crates. Each trait
 //! is implemented by a downstream crate (e.g. kahf-db, kahf-search)
 //! and consumed via dependency injection through `dyn Trait` or generics.
 //!

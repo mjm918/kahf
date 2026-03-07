@@ -2,6 +2,7 @@
 ## Checks that Claude is not writing inline or item-level doc comments.
 ## Inline comments (//) and item-level doc comments (///) are forbidden.
 ## Only file-level block comments (//!) and JSDoc (/** */) are allowed.
+## HTML files use <!-- --> comments and are excluded from this check.
 ## Runs as PreToolUse hook on Write/Edit operations.
 
 TOOL_INPUT=$(cat)
@@ -41,7 +42,11 @@ if [ -z "$CONTENT" ]; then
   exit 0
 fi
 
-INLINE_VIOLATIONS=$(echo "$CONTENT" | grep -nE '^\s*//[^/!]|[^:"/]\s*//[^/!]' | grep -v '://' | grep -v '^\s*/\*\*' | head -5)
+INLINE_VIOLATIONS=$(echo "$CONTENT" | grep -nE '^\s*//[^/!]' | head -5)
+
+if [ -z "$INLINE_VIOLATIONS" ]; then
+  INLINE_VIOLATIONS=$(echo "$CONTENT" | grep -nE ';\s*//[^/!]' | head -5)
+fi
 
 if [ -n "$INLINE_VIOLATIONS" ]; then
   echo "BLOCKED: Inline comments (//) detected in $FILE_PATH"

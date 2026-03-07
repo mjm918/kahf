@@ -13,7 +13,9 @@
       "mcp__syncfusion-angular-assistant__sf_angular_style",
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_take_screenshot",
-      "mcp__playwright__browser_resize"
+      "mcp__playwright__browser_resize",
+      "Bash(chmod +x:*)",
+      "Bash(.claude/hooks/check-no-inline-comments.sh:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

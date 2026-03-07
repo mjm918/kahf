@@ -82,7 +82,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::email::{EmailSender, INVITE_TTL_DAYS, OTP_TTL_MINUTES, generate_otp};
+use kahf_email::{EmailSender, INVITE_TTL_DAYS, OTP_TTL_MINUTES, generate_otp};
 use crate::jwt::{JwtConfig, issue_access_token, issue_refresh_token, verify_token};
 use crate::password::{hash_password, verify_password};
 

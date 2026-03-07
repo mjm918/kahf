@@ -1,7 +1,7 @@
-//! Kahf core domain library.
+//! KahfLane core domain library.
 //!
 //! Provides the foundational types, traits, and error definitions shared
-//! across all Kahf crates. This crate is intentionally free of I/O — it
+//! across all KahfLane crates. This crate is intentionally free of I/O — it
 //! contains only pure domain models and trait contracts.
 //!
 //! ## Modules

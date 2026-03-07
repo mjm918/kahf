@@ -1,4 +1,4 @@
-//! Kahf server library.
+//! KahfLane server library.
 //!
 //! Exposes the application state, configuration, error mapping, and
 //! route construction so that `main.rs` composes them into the binary

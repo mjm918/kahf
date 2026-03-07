@@ -1,6 +1,6 @@
-//! Kahf database layer.
+//! KahfLane database layer.
 //!
-//! Provides PostgreSQL + TimescaleDB integration for the Kahf platform.
+//! Provides PostgreSQL + TimescaleDB integration for the KahfLane platform.
 //! Owns all database tables and migrations. Implements `EventStore` and
 //! `EntityRepository` traits from `kahf-core`. Provides standalone
 //! repository functions for users, workspaces, sessions, CRDT docs,

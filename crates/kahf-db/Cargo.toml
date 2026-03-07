@@ -1,6 +1,6 @@
 [package]
 name = "kahf-db"
-description = "PostgreSQL + TimescaleDB database layer for the Kahf platform"
+description = "PostgreSQL + TimescaleDB database layer for the KahfLane platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

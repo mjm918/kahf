@@ -10,7 +10,8 @@
 
 use std::sync::Arc;
 
-use kahf_auth::{EmailSender, JwtConfig};
+use kahf_auth::JwtConfig;
+use kahf_email::EmailSender;
 use kahf_db::DbPool;
 use kahf_rbac::RbacEnforcer;
 use kahf_realtime::{BroadcastEventBus, Hub};
