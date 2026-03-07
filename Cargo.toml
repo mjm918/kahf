@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0"
+repository = "https://github.com/kahf-app/kahf"
+
+[workspace.dependencies]
+axum = { version = "0.8", features = ["ws", "multipart"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace"] }
+tokio = { version = "1", features = ["full"] }
+
+yrs = "0.21"
+y-sync = "0.6"
+
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "uuid", "time", "chrono", "migrate"] }
+
+casbin = "2"
+sqlx-adapter = { version = "1.8", default-features = false, features = ["postgres", "runtime-tokio-native-tls"] }
+
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "streams"] }
+
+meilisearch-sdk = "0.27"
+
+aws-sdk-s3 = "1"
+aws-config = "1"
+
+jsonwebtoken = "9"
+argon2 = "0.5"
+
+lettre = "0.11"
+
+reqwest = { version = "0.12", features = ["json"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+extism = "1.0"
+
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+eyre = "0.6"
+color-eyre = "0.6"
+dotenvy = "0.15"
+tokio-cron-scheduler = "0.13"
+
+kahf-core = { path = "crates/kahf-core" }
+kahf-db = { path = "crates/kahf-db" }
+kahf-auth = { path = "crates/kahf-auth" }
+kahf-rbac = { path = "crates/kahf-rbac" }

@@ -1,0 +1,30 @@
+[package]
+name = "kahf-realtime"
+description = "WebSocket hub, CRDT engine, event bus, and presence for the Kahf platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kahf-core = { workspace = true }
+kahf-db = { workspace = true }
+
+axum = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+
+yrs = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
+
+base64 = "0.22"
+futures-util = "0.3"
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+tokio-tungstenite = "0.28"

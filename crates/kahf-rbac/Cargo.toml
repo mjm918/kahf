@@ -1,0 +1,18 @@
+[package]
+name = "kahf-rbac"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kahf-core = { workspace = true }
+casbin = { workspace = true }
+sqlx-adapter = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }

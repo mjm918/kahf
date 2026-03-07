@@ -1,0 +1,49 @@
+{
+  "mcpServers": {
+    "dbhub": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": [
+        "@bytebase/dbhub",
+        "--transport",
+        "stdio",
+        "--dsn",
+        "postgres://postgres:frf%40%21333%21%40Fg@103.209.156.107:5432/kahflane?sslmode=disable"
+      ]
+    },
+    "syncfusion-blazor-assistant": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": [
+        "-y",
+        "@syncfusion/blazor-assistant@latest"
+      ],
+      "env": {
+        "Syncfusion_API_Key": "HXwTtGgBxp/ZfiRkMHZRmhZWy8DeZV50+xUEUm4LfR1QLQ5+XX36P5mmU6eVHPdvlIee/1/DVRn3EuyetXTAMg=="
+      }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "env": {}
+    },
+    "grep": {
+      "type": "http",
+      "url": "https://mcp.grep.app"
+    },
+    "context7": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp",
+        "--api-key",
+        "ctx7sk-d5dde678-6e9a-4d77-9cde-412dff0e1175"
+      ],
+      "env": {}
+    }
+  }
+}
