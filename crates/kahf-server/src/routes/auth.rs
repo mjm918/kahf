@@ -1,14 +1,27 @@
-//! Authentication endpoints: signup, login, refresh, logout.
+//! Authentication endpoints: signup, login, refresh, logout, verify-otp,
+//! resend-otp.
 //!
 //! ## POST /api/auth/signup
 //!
-//! Creates a new user account. Body: `{ email, password, name }`.
-//! Returns `AuthResponse` with access/refresh tokens and user info.
+//! Creates a new user account and sends a 6-digit OTP to the provided
+//! email. Body: `{ email, password, name }`. Returns `{ user_id, email,
+//! message }`. Tokens are NOT returned — user must verify email first.
+//!
+//! ## POST /api/auth/verify-otp
+//!
+//! Verifies the OTP code for the given email. Body: `{ email, code }`.
+//! On success, marks email as verified and returns `AuthResponse` with
+//! access/refresh tokens.
+//!
+//! ## POST /api/auth/resend-otp
+//!
+//! Invalidates existing OTPs and sends a new one. Body: `{ email }`.
+//! Returns `{ user_id, email, message }`.
 //!
 //! ## POST /api/auth/login
 //!
-//! Authenticates by email and password. Body: `{ email, password }`.
-//! Returns `AuthResponse` on success, 401 on bad credentials.
+//! Authenticates by email and password. Rejects unverified emails.
+//! Body: `{ email, password }`. Returns `AuthResponse`.
 //!
 //! ## POST /api/auth/refresh
 //!
@@ -31,6 +44,8 @@ use crate::error::AppError;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/auth/signup", post(signup))
+        .route("/api/auth/verify-otp", post(verify_otp))
+        .route("/api/auth/resend-otp", post(resend_otp))
         .route("/api/auth/login", post(login))
         .route("/api/auth/refresh", post(refresh))
         .route("/api/auth/logout", post(logout))
@@ -49,7 +64,7 @@ async fn signup(
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
     let resp = kahf_auth::service::signup(
         state.pool(),
-        &state.jwt,
+        &*state.mailer,
         &body.email,
         &body.password,
         &body.name,
@@ -57,6 +72,46 @@ async fn signup(
     .await?;
 
     Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(resp)?)))
+}
+
+#[derive(Deserialize)]
+struct VerifyOtpRequest {
+    email: String,
+    code: String,
+}
+
+async fn verify_otp(
+    State(state): State<AppState>,
+    axum::Json(body): axum::Json<VerifyOtpRequest>,
+) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let resp = kahf_auth::service::verify_otp(
+        state.pool(),
+        &state.jwt,
+        &body.email,
+        &body.code,
+    )
+    .await?;
+
+    Ok(axum::Json(serde_json::to_value(resp)?))
+}
+
+#[derive(Deserialize)]
+struct ResendOtpRequest {
+    email: String,
+}
+
+async fn resend_otp(
+    State(state): State<AppState>,
+    axum::Json(body): axum::Json<ResendOtpRequest>,
+) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let resp = kahf_auth::service::resend_otp(
+        state.pool(),
+        &*state.mailer,
+        &body.email,
+    )
+    .await?;
+
+    Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
 #[derive(Deserialize)]

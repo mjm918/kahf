@@ -1,16 +1,26 @@
 //! Integration tests for kahf-auth against the staging database.
 //!
-//! Tests cover password hashing, JWT token lifecycle, auth service
-//! operations (signup, login, refresh), and error paths including
-//! wrong passwords, expired tokens, duplicate emails, and invalid
-//! token types.
+//! Tests cover password hashing, JWT token lifecycle, the OTP-based
+//! signup/verify flow, login (requires verified email), refresh,
+//! resend OTP, and error paths including wrong passwords, expired
+//! tokens, duplicate emails, invalid OTP codes, and unverified login
+//! attempts.
 
 use chrono::Duration;
+use kahf_auth::email::{EmailSender, generate_otp, OTP_TTL_MINUTES};
 use kahf_auth::jwt::{JwtConfig, issue_access_token, issue_refresh_token, verify_token};
 use kahf_auth::password::{hash_password, verify_password};
 use kahf_auth::service;
 use kahf_db::pool::DbPool;
 use uuid::Uuid;
+
+struct NoopEmailSender;
+
+impl EmailSender for NoopEmailSender {
+    fn send_otp(&self, _to_email: &str, _otp_code: &str) -> eyre::Result<()> {
+        Ok(())
+    }
+}
 
 fn database_url() -> String {
     dotenvy::dotenv().ok();
@@ -22,7 +32,17 @@ fn test_jwt_config() -> JwtConfig {
 }
 
 async fn test_pool() -> DbPool {
-    DbPool::connect(&database_url()).await.expect("failed to connect to staging DB")
+    let db = DbPool::connect(&database_url()).await.expect("failed to connect to staging DB");
+    db.migrate().await.expect("failed to run migrations");
+    db
+}
+
+async fn create_verified_user(pool: &sqlx::PgPool, email: &str, password: &str, name: &str) {
+    let password_hash = hash_password(password).unwrap();
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, name)
+        .await
+        .unwrap();
+    kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
 }
 
 #[test]
@@ -121,52 +141,184 @@ fn jwt_expired_token_fails() {
     assert!(result.is_err(), "expired token should fail verification");
 }
 
+#[test]
+fn otp_generate_is_six_digits() {
+    for _ in 0..100 {
+        let code = generate_otp();
+        assert_eq!(code.len(), 6);
+        assert!(code.chars().all(|c| c.is_ascii_digit()));
+    }
+}
+
 #[tokio::test]
-async fn service_signup_creates_user_and_returns_tokens() {
+async fn service_signup_returns_signup_response_without_tokens() {
     let db = test_pool().await;
-    let config = test_jwt_config();
+    let mailer = NoopEmailSender;
     let email = format!("signup-{}@kahf.test", Uuid::new_v4());
 
-    let resp = service::signup(db.pool(), &config, &email, "strong-password-123", "Test User")
+    let resp = service::signup(db.pool(), &mailer, &email, "strong-password-123", "Test User")
         .await
         .unwrap();
 
     assert_eq!(resp.email, email);
-    assert_eq!(resp.name, "Test User");
-    assert!(!resp.access_token.is_empty());
-    assert!(!resp.refresh_token.is_empty());
-
-    let access_claims = verify_token(&config, &resp.access_token).unwrap();
-    assert_eq!(access_claims.sub, resp.user_id);
-    assert_eq!(access_claims.token_type, "access");
-
-    let refresh_claims = verify_token(&config, &resp.refresh_token).unwrap();
-    assert_eq!(refresh_claims.token_type, "refresh");
+    assert!(!resp.message.is_empty());
+    assert!(!resp.user_id.is_nil());
 }
 
 #[tokio::test]
 async fn service_signup_duplicate_email_fails() {
     let db = test_pool().await;
-    let config = test_jwt_config();
+    let mailer = NoopEmailSender;
     let email = format!("dup-signup-{}@kahf.test", Uuid::new_v4());
 
-    service::signup(db.pool(), &config, &email, "pass1", "User 1").await.unwrap();
+    service::signup(db.pool(), &mailer, &email, "pass1", "User 1").await.unwrap();
 
-    let result = service::signup(db.pool(), &config, &email, "pass2", "User 2").await;
+    let result = service::signup(db.pool(), &mailer, &email, "pass2", "User 2").await;
     assert!(result.is_err(), "duplicate email signup should fail");
 }
 
 #[tokio::test]
-async fn service_login_success() {
+async fn service_verify_otp_success() {
+    let db = test_pool().await;
+    let jwt = test_jwt_config();
+    let email = format!("verify-otp-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("test-pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "OTP User")
+        .await
+        .unwrap();
+
+    let otp_code = generate_otp();
+    let expires_at = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, &otp_code, expires_at)
+        .await
+        .unwrap();
+
+    let resp = service::verify_otp(db.pool(), &jwt, &email, &otp_code)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.email, email);
+    assert_eq!(resp.user_id, user.id);
+    assert!(!resp.access_token.is_empty());
+    assert!(!resp.refresh_token.is_empty());
+
+    let claims = verify_token(&jwt, &resp.access_token).unwrap();
+    assert_eq!(claims.sub, user.id);
+    assert_eq!(claims.token_type, "access");
+}
+
+#[tokio::test]
+async fn service_verify_otp_wrong_code_fails() {
+    let db = test_pool().await;
+    let jwt = test_jwt_config();
+    let email = format!("bad-otp-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("test-pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Bad OTP User")
+        .await
+        .unwrap();
+
+    let expires_at = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, "123456", expires_at)
+        .await
+        .unwrap();
+
+    let result = service::verify_otp(db.pool(), &jwt, &email, "999999").await;
+    assert!(result.is_err(), "wrong OTP code should fail");
+}
+
+#[tokio::test]
+async fn service_verify_otp_expired_code_fails() {
+    let db = test_pool().await;
+    let jwt = test_jwt_config();
+    let email = format!("exp-otp-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("test-pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Expired OTP User")
+        .await
+        .unwrap();
+
+    let expired = chrono::Utc::now() - Duration::minutes(1);
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, "123456", expired)
+        .await
+        .unwrap();
+
+    let result = service::verify_otp(db.pool(), &jwt, &email, "123456").await;
+    assert!(result.is_err(), "expired OTP should fail");
+}
+
+#[tokio::test]
+async fn service_verify_otp_already_verified_fails() {
+    let db = test_pool().await;
+    let jwt = test_jwt_config();
+    let email = format!("already-verified-{}@kahf.test", Uuid::new_v4());
+
+    create_verified_user(db.pool(), &email, "test-pass", "Already Verified").await;
+
+    let result = service::verify_otp(db.pool(), &jwt, &email, "123456").await;
+    assert!(result.is_err(), "already verified email should fail");
+}
+
+#[tokio::test]
+async fn service_verify_otp_used_code_fails() {
+    let db = test_pool().await;
+    let jwt = test_jwt_config();
+    let email = format!("used-otp-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("test-pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Used OTP User")
+        .await
+        .unwrap();
+
+    let otp_code = generate_otp();
+    let expires_at = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, &otp_code, expires_at)
+        .await
+        .unwrap();
+
+    service::verify_otp(db.pool(), &jwt, &email, &otp_code).await.unwrap();
+
+    let email2 = format!("used-otp2-{}@kahf.test", Uuid::new_v4());
+    let user2 = kahf_db::user_repo::create_user(db.pool(), &email2, &password_hash, "Used OTP User 2")
+        .await
+        .unwrap();
+    let expires_at2 = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    let otp2 = kahf_db::otp_repo::create_otp(db.pool(), user2.id, "654321", expires_at2)
+        .await
+        .unwrap();
+    kahf_db::otp_repo::mark_otp_used(db.pool(), otp2.id).await.unwrap();
+
+    let result = service::verify_otp(db.pool(), &jwt, &email2, "654321").await;
+    assert!(result.is_err(), "used OTP code should fail");
+}
+
+#[tokio::test]
+async fn service_login_success_verified_email() {
     let db = test_pool().await;
     let config = test_jwt_config();
     let email = format!("login-{}@kahf.test", Uuid::new_v4());
 
-    service::signup(db.pool(), &config, &email, "my-password", "Login User").await.unwrap();
+    create_verified_user(db.pool(), &email, "my-password", "Login User").await;
 
     let resp = service::login(db.pool(), &config, &email, "my-password").await.unwrap();
     assert_eq!(resp.email, email);
     assert!(!resp.access_token.is_empty());
+}
+
+#[tokio::test]
+async fn service_login_unverified_email_fails() {
+    let db = test_pool().await;
+    let config = test_jwt_config();
+    let email = format!("unverified-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("my-password").unwrap();
+    kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Unverified User")
+        .await
+        .unwrap();
+
+    let result = service::login(db.pool(), &config, &email, "my-password").await;
+    assert!(result.is_err(), "unverified email should fail login");
 }
 
 #[tokio::test]
@@ -175,7 +327,7 @@ async fn service_login_wrong_password_fails() {
     let config = test_jwt_config();
     let email = format!("badpass-{}@kahf.test", Uuid::new_v4());
 
-    service::signup(db.pool(), &config, &email, "correct-password", "User").await.unwrap();
+    create_verified_user(db.pool(), &email, "correct-password", "User").await;
 
     let result = service::login(db.pool(), &config, &email, "wrong-password").await;
     assert!(result.is_err(), "wrong password should fail login");
@@ -196,14 +348,15 @@ async fn service_refresh_issues_new_access_token() {
     let config = test_jwt_config();
     let email = format!("refresh-{}@kahf.test", Uuid::new_v4());
 
-    let signup_resp = service::signup(db.pool(), &config, &email, "pass", "Refresh User")
-        .await.unwrap();
+    create_verified_user(db.pool(), &email, "pass", "Refresh User").await;
 
-    let new_access = service::refresh(db.pool(), &config, &signup_resp.refresh_token)
+    let login_resp = service::login(db.pool(), &config, &email, "pass").await.unwrap();
+
+    let new_access = service::refresh(db.pool(), &config, &login_resp.refresh_token)
         .await.unwrap();
 
     let claims = verify_token(&config, &new_access).unwrap();
-    assert_eq!(claims.sub, signup_resp.user_id);
+    assert_eq!(claims.sub, login_resp.user_id);
     assert_eq!(claims.token_type, "access");
 }
 
@@ -213,7 +366,9 @@ async fn service_refresh_with_access_token_fails() {
     let config = test_jwt_config();
     let email = format!("ref-bad-{}@kahf.test", Uuid::new_v4());
 
-    let resp = service::signup(db.pool(), &config, &email, "pass", "User").await.unwrap();
+    create_verified_user(db.pool(), &email, "pass", "User").await;
+
+    let resp = service::login(db.pool(), &config, &email, "pass").await.unwrap();
 
     let result = service::refresh(db.pool(), &config, &resp.access_token).await;
     assert!(result.is_err(), "using access token as refresh should fail");
@@ -226,4 +381,62 @@ async fn service_refresh_with_invalid_token_fails() {
 
     let result = service::refresh(db.pool(), &config, "garbage.token.here").await;
     assert!(result.is_err(), "invalid refresh token should fail");
+}
+
+#[tokio::test]
+async fn service_resend_otp_invalidates_old_codes() {
+    let db = test_pool().await;
+    let mailer = NoopEmailSender;
+    let jwt = test_jwt_config();
+    let email = format!("resend-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("test-pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Resend User")
+        .await
+        .unwrap();
+
+    let old_code = "111111";
+    let expires_at = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, old_code, expires_at)
+        .await
+        .unwrap();
+
+    service::resend_otp(db.pool(), &mailer, &email).await.unwrap();
+
+    let result = service::verify_otp(db.pool(), &jwt, &email, old_code).await;
+    assert!(result.is_err(), "old OTP should be invalidated after resend");
+}
+
+#[tokio::test]
+async fn service_resend_otp_already_verified_fails() {
+    let db = test_pool().await;
+    let mailer = NoopEmailSender;
+    let email = format!("resend-verified-{}@kahf.test", Uuid::new_v4());
+
+    create_verified_user(db.pool(), &email, "test-pass", "Verified Resend").await;
+
+    let result = service::resend_otp(db.pool(), &mailer, &email).await;
+    assert!(result.is_err(), "resend OTP for verified email should fail");
+}
+
+#[tokio::test]
+async fn otp_repo_invalidate_all_user_otps() {
+    let db = test_pool().await;
+    let email = format!("inval-otp-{}@kahf.test", Uuid::new_v4());
+
+    let password_hash = hash_password("test-pass").unwrap();
+    let user = kahf_db::user_repo::create_user(db.pool(), &email, &password_hash, "Inval OTP User")
+        .await
+        .unwrap();
+
+    let expires_at = chrono::Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, "111111", expires_at).await.unwrap();
+    kahf_db::otp_repo::create_otp(db.pool(), user.id, "222222", expires_at).await.unwrap();
+
+    kahf_db::otp_repo::invalidate_user_otps(db.pool(), user.id).await.unwrap();
+
+    let otp1 = kahf_db::otp_repo::get_valid_otp(db.pool(), user.id, "111111").await.unwrap();
+    let otp2 = kahf_db::otp_repo::get_valid_otp(db.pool(), user.id, "222222").await.unwrap();
+    assert!(otp1.is_none(), "all OTPs should be invalidated");
+    assert!(otp2.is_none(), "all OTPs should be invalidated");
 }

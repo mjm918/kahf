@@ -6,15 +6,26 @@
 //! user profile, workspace management, entity CRUD with event sourcing,
 //! time-travel history, error responses, and the health endpoint.
 
+use std::sync::Arc;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use kahf_auth::JwtConfig;
+use kahf_auth::jwt::issue_access_token;
+use kahf_auth::{EmailSender, JwtConfig};
 use kahf_db::DbPool;
 use kahf_realtime::{BroadcastEventBus, Hub};
 use kahf_server::app_state::AppState;
 use serde_json::Value;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+struct NoopEmailSender;
+
+impl EmailSender for NoopEmailSender {
+    fn send_otp(&self, _to_email: &str, _otp_code: &str) -> eyre::Result<()> {
+        Ok(())
+    }
+}
 
 fn database_url() -> String {
     dotenvy::dotenv().ok();
@@ -24,8 +35,9 @@ fn database_url() -> String {
 async fn make_state(db: DbPool, jwt: JwtConfig) -> AppState {
     let hub = Hub::new(db.pool().clone());
     let event_bus = BroadcastEventBus::new(64);
+    let mailer: Arc<dyn EmailSender> = Arc::new(NoopEmailSender);
     let rbac = kahf_rbac::RbacEnforcer::new(&database_url()).await.unwrap();
-    AppState::new(db, jwt, hub, event_bus, rbac)
+    AppState::new(db, jwt, mailer, hub, event_bus, rbac)
 }
 
 async fn assign_owner(state: &AppState, user_id: uuid::Uuid, workspace_id: uuid::Uuid) {
@@ -34,12 +46,25 @@ async fn assign_owner(state: &AppState, user_id: uuid::Uuid, workspace_id: uuid:
         .unwrap();
 }
 
-async fn test_app() -> axum::Router {
+struct TestContext {
+    app: axum::Router,
+    jwt: JwtConfig,
+    pool: sqlx::PgPool,
+}
+
+async fn test_ctx() -> TestContext {
     let db = DbPool::connect(&database_url()).await.unwrap();
     db.migrate().await.unwrap();
+    let pool = db.pool().clone();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
     let state = make_state(db, jwt.clone()).await;
-    kahf_server::build_app(state, jwt)
+    let app = kahf_server::build_app(state, jwt.clone());
+    TestContext { app, jwt, pool }
+}
+
+#[allow(dead_code)]
+async fn test_app() -> axum::Router {
+    test_ctx().await.app
 }
 
 fn unique_email() -> String {
@@ -57,22 +82,33 @@ async fn body_json(resp: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-async fn signup(app: &axum::Router, email: &str, password: &str, name: &str) -> Value {
-    let body = serde_json::json!({ "email": email, "password": password, "name": name });
-    let resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/auth/signup")
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
+async fn create_verified_user(
+    pool: &sqlx::PgPool,
+    jwt: &JwtConfig,
+    email: &str,
+    password: &str,
+    name: &str,
+) -> Value {
+    let password_hash = kahf_auth::password::hash_password(password).unwrap();
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, name)
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::CREATED);
-    body_json(resp).await
+    kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
+
+    let access_token = issue_access_token(jwt, user.id, None, None).unwrap();
+    let refresh_token = kahf_auth::jwt::issue_refresh_token(jwt, user.id).unwrap();
+
+    serde_json::json!({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user_id": user.id,
+        "email": email,
+        "name": name
+    })
+}
+
+async fn signup_ctx(ctx: &TestContext, email: &str, password: &str, name: &str) -> Value {
+    create_verified_user(&ctx.pool, &ctx.jwt, email, password, name).await
 }
 
 async fn login(app: &axum::Router, email: &str, password: &str) -> Value {
@@ -99,8 +135,9 @@ fn auth_header(token: &str) -> String {
 
 #[tokio::test]
 async fn test_health_check() {
-    let app = test_app().await;
-    let resp = app
+    let ctx = test_ctx().await;
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri("/api/health")
@@ -119,25 +156,39 @@ async fn test_health_check() {
 
 #[tokio::test]
 async fn test_signup_creates_user() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let json = signup(&app, &email, "StrongPass1!", "Test User").await;
+    let body = serde_json::json!({ "email": email, "password": "StrongPass1!", "name": "Test User" });
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/signup")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
-    assert!(json["access_token"].is_string());
-    assert!(json["refresh_token"].is_string());
-    assert_eq!(json["email"], email);
-    assert_eq!(json["name"], "Test User");
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let json = body_json(resp).await;
     assert!(json["user_id"].is_string());
+    assert_eq!(json["email"], email);
+    assert!(json["message"].is_string());
 }
 
 #[tokio::test]
 async fn test_signup_duplicate_email_fails() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    signup(&app, &email, "StrongPass1!", "User One").await;
+    signup_ctx(&ctx, &email, "StrongPass1!", "User One").await;
 
     let body = serde_json::json!({ "email": email, "password": "StrongPass1!", "name": "User Two" });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -154,10 +205,10 @@ async fn test_signup_duplicate_email_fails() {
 
 #[tokio::test]
 async fn test_login_success() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    signup(&app, &email, "MyPassword1!", "Login User").await;
-    let json = login(&app, &email, "MyPassword1!").await;
+    signup_ctx(&ctx, &email, "MyPassword1!", "Login User").await;
+    let json = login(&ctx.app, &email, "MyPassword1!").await;
 
     assert!(json["access_token"].is_string());
     assert!(json["refresh_token"].is_string());
@@ -166,12 +217,13 @@ async fn test_login_success() {
 
 #[tokio::test]
 async fn test_login_wrong_password() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    signup(&app, &email, "CorrectPass1!", "Wrong Pass").await;
+    signup_ctx(&ctx, &email, "CorrectPass1!", "Wrong Pass").await;
 
     let body = serde_json::json!({ "email": email, "password": "WrongPass1!" });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -188,9 +240,10 @@ async fn test_login_wrong_password() {
 
 #[tokio::test]
 async fn test_login_nonexistent_user() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let body = serde_json::json!({ "email": "nonexistent@kahf.test", "password": "Whatever1!" });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -207,13 +260,14 @@ async fn test_login_nonexistent_user() {
 
 #[tokio::test]
 async fn test_refresh_token() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "RefreshMe1!", "Refresh User").await;
+    let signup_json = signup_ctx(&ctx, &email, "RefreshMe1!", "Refresh User").await;
     let refresh_token = signup_json["refresh_token"].as_str().unwrap();
 
     let body = serde_json::json!({ "refresh_token": refresh_token });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -232,9 +286,10 @@ async fn test_refresh_token() {
 
 #[tokio::test]
 async fn test_refresh_with_invalid_token() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let body = serde_json::json!({ "refresh_token": "invalid.token.here" });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -251,8 +306,9 @@ async fn test_refresh_with_invalid_token() {
 
 #[tokio::test]
 async fn test_logout() {
-    let app = test_app().await;
-    let resp = app
+    let ctx = test_ctx().await;
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -268,12 +324,13 @@ async fn test_logout() {
 
 #[tokio::test]
 async fn test_get_me() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "GetMe1234!", "Me User").await;
+    let signup_json = signup_ctx(&ctx, &email, "GetMe1234!", "Me User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri("/api/users/me")
@@ -292,8 +349,9 @@ async fn test_get_me() {
 
 #[tokio::test]
 async fn test_get_me_without_auth() {
-    let app = test_app().await;
-    let resp = app
+    let ctx = test_ctx().await;
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri("/api/users/me")
@@ -308,13 +366,14 @@ async fn test_get_me_without_auth() {
 
 #[tokio::test]
 async fn test_update_me() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "UpdateMe1!", "Old Name").await;
+    let signup_json = signup_ctx(&ctx, &email, "UpdateMe1!", "Old Name").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let body = serde_json::json!({ "name": "New Name", "avatar_url": "https://example.com/avatar.png" });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -335,14 +394,15 @@ async fn test_update_me() {
 
 #[tokio::test]
 async fn test_create_workspace() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "WorkspacePass1!", "WS User").await;
+    let signup_json = signup_ctx(&ctx, &email, "WorkspacePass1!", "WS User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
     let body = serde_json::json!({ "name": "Test Workspace", "slug": slug });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -363,14 +423,15 @@ async fn test_create_workspace() {
 
 #[tokio::test]
 async fn test_list_workspaces() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "ListWS1!", "List User").await;
+    let signup_json = signup_ctx(&ctx, &email, "ListWS1!", "List User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
     let body = serde_json::json!({ "name": "Listed WS", "slug": slug });
-    app.clone()
+    ctx.app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -383,7 +444,8 @@ async fn test_list_workspaces() {
         .await
         .unwrap();
 
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri("/api/workspaces")
@@ -402,14 +464,15 @@ async fn test_list_workspaces() {
 
 #[tokio::test]
 async fn test_get_workspace_by_id() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "GetWS1!", "Get WS User").await;
+    let signup_json = signup_ctx(&ctx, &email, "GetWS1!", "Get WS User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
     let body = serde_json::json!({ "name": "Get WS", "slug": slug });
-    let create_resp = app
+    let create_resp = ctx
+        .app
         .clone()
         .oneshot(
             Request::builder()
@@ -425,7 +488,8 @@ async fn test_get_workspace_by_id() {
     let create_json = body_json(create_resp).await;
     let ws_id = create_json["id"].as_str().unwrap();
 
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri(format!("/api/workspaces/{ws_id}"))
@@ -443,13 +507,14 @@ async fn test_get_workspace_by_id() {
 
 #[tokio::test]
 async fn test_get_nonexistent_workspace() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "NoWS1!", "No WS User").await;
+    let signup_json = signup_ctx(&ctx, &email, "NoWS1!", "No WS User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let fake_id = Uuid::new_v4();
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri(format!("/api/workspaces/{fake_id}"))
@@ -465,20 +530,21 @@ async fn test_get_nonexistent_workspace() {
 
 #[tokio::test]
 async fn test_workspace_add_and_remove_member() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
 
     let email1 = unique_email();
-    let signup1 = signup(&app, &email1, "Owner1!", "Owner").await;
+    let signup1 = signup_ctx(&ctx, &email1, "Owner1!", "Owner").await;
     let token1 = signup1["access_token"].as_str().unwrap();
     let user1_id = signup1["user_id"].as_str().unwrap();
 
     let email2 = unique_email();
-    let signup2 = signup(&app, &email2, "Member1!", "Member").await;
+    let signup2 = signup_ctx(&ctx, &email2, "Member1!", "Member").await;
     let user2_id = signup2["user_id"].as_str().unwrap();
 
     let slug = unique_slug();
     let ws_body = serde_json::json!({ "name": "Member WS", "slug": slug });
-    let ws_resp = app
+    let ws_resp = ctx
+        .app
         .clone()
         .oneshot(
             Request::builder()
@@ -495,7 +561,8 @@ async fn test_workspace_add_and_remove_member() {
     let ws_id = ws_json["id"].as_str().unwrap();
 
     let add_body = serde_json::json!({ "user_id": user2_id, "role": "member" });
-    let add_resp = app
+    let add_resp = ctx
+        .app
         .clone()
         .oneshot(
             Request::builder()
@@ -510,7 +577,8 @@ async fn test_workspace_add_and_remove_member() {
         .unwrap();
     assert_eq!(add_resp.status(), StatusCode::CREATED);
 
-    let remove_resp = app
+    let remove_resp = ctx
+        .app
         .clone()
         .oneshot(
             Request::builder()
@@ -529,38 +597,34 @@ async fn test_workspace_add_and_remove_member() {
 
 #[tokio::test]
 async fn test_create_entity() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "Entity1!", "Entity User").await;
-    let user_id = signup_json["user_id"].as_str().unwrap();
+    let signup_json = signup_ctx(&ctx, &email, "Entity1!", "Entity User").await;
+    let user_id_str = signup_json["user_id"].as_str().unwrap();
+    let user_id = uuid::Uuid::parse_str(user_id_str).unwrap();
 
     let slug = unique_slug();
-    let ws_body = serde_json::json!({ "name": "Entity WS", "slug": slug });
-
-    let jwt_secret = format!("test-secret-{}", Uuid::new_v4());
-    let jwt = JwtConfig::new(jwt_secret);
-
-    let db = DbPool::connect(&database_url()).await.unwrap();
     let ws = kahf_db::workspace_repo::create_workspace(
-        db.pool(),
+        &ctx.pool,
         "Entity WS",
         &slug,
-        uuid::Uuid::parse_str(user_id).unwrap(),
+        user_id,
     )
     .await
     .unwrap();
 
     let access_token = kahf_auth::jwt::issue_access_token(
-        &jwt,
-        uuid::Uuid::parse_str(user_id).unwrap(),
+        &ctx.jwt,
+        user_id,
         Some(ws.id),
         Some("owner".into()),
     )
     .unwrap();
 
-    let state = make_state(db, jwt.clone()).await;
-    assign_owner(&state, uuid::Uuid::parse_str(user_id).unwrap(), ws.id).await;
-    let app = kahf_server::build_app(state, jwt);
+    let db = DbPool::connect(&database_url()).await.unwrap();
+    let state = make_state(db, ctx.jwt.clone()).await;
+    assign_owner(&state, user_id, ws.id).await;
+    let app = kahf_server::build_app(state, ctx.jwt.clone());
 
     let task_data = serde_json::json!({
         "title": "Test Task",
@@ -586,8 +650,6 @@ async fn test_create_entity() {
     assert_eq!(json["data"]["title"], "Test Task");
     assert_eq!(json["data"]["status"], "todo");
     assert!(!json["deleted"].as_bool().unwrap());
-
-    let _ = ws_body;
 }
 
 #[tokio::test]
@@ -876,9 +938,10 @@ async fn test_get_nonexistent_entity() {
 
 #[tokio::test]
 async fn test_signup_missing_fields() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let body = serde_json::json!({ "email": "missing@fields.com" });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -895,8 +958,9 @@ async fn test_signup_missing_fields() {
 
 #[tokio::test]
 async fn test_entity_requires_auth() {
-    let app = test_app().await;
-    let resp = app
+    let ctx = test_ctx().await;
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .uri("/api/entities/task")
@@ -911,15 +975,16 @@ async fn test_entity_requires_auth() {
 
 #[tokio::test]
 async fn test_workspace_duplicate_slug_fails() {
-    let app = test_app().await;
+    let ctx = test_ctx().await;
     let email = unique_email();
-    let signup_json = signup(&app, &email, "DupSlug1!", "Dup Slug User").await;
+    let signup_json = signup_ctx(&ctx, &email, "DupSlug1!", "Dup Slug User").await;
     let token = signup_json["access_token"].as_str().unwrap();
 
     let slug = unique_slug();
     let body = serde_json::json!({ "name": "First WS", "slug": slug });
 
-    app.clone()
+    ctx.app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -933,7 +998,8 @@ async fn test_workspace_duplicate_slug_fails() {
         .unwrap();
 
     let body2 = serde_json::json!({ "name": "Second WS", "slug": slug });
-    let resp = app
+    let resp = ctx
+        .app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -970,26 +1036,19 @@ async fn start_test_server() -> (String, JwtConfig, sqlx::PgPool) {
 async fn ws_signup_and_create_workspace(
     addr: &str,
     jwt: &JwtConfig,
+    pool: &sqlx::PgPool,
     email: &str,
 ) -> (String, Uuid) {
-    let client = reqwest::Client::new();
-    let base = format!("http://{}", addr);
-
-    let resp: Value = client
-        .post(format!("{}/api/auth/signup", base))
-        .json(&serde_json::json!({
-            "email": email,
-            "password": "TestPass1!",
-            "name": "WS Test User"
-        }))
-        .send()
-        .await
-        .unwrap()
-        .json()
+    let password_hash = kahf_auth::password::hash_password("TestPass1!").unwrap();
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, "WS Test User")
         .await
         .unwrap();
+    kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
 
-    let access_token = resp["access_token"].as_str().unwrap().to_string();
+    let access_token = kahf_auth::jwt::issue_access_token(jwt, user.id, None, None).unwrap();
+
+    let client = reqwest::Client::new();
+    let base = format!("http://{}", addr);
 
     let ws_resp: Value = client
         .post(format!("{}/api/workspaces", base))
@@ -1008,10 +1067,9 @@ async fn ws_signup_and_create_workspace(
     let workspace_id =
         Uuid::parse_str(ws_resp["id"].as_str().unwrap()).unwrap();
 
-    let claims = kahf_auth::jwt::verify_token(jwt, &access_token).unwrap();
     let ws_token = kahf_auth::jwt::issue_access_token(
         jwt,
-        claims.sub,
+        user.id,
         Some(workspace_id),
         None,
     )
@@ -1022,9 +1080,9 @@ async fn ws_signup_and_create_workspace(
 
 #[tokio::test]
 async fn test_ws_connect_with_valid_token() {
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
     let email = unique_email();
-    let (token, _ws_id) = ws_signup_and_create_workspace(&addr, &jwt, &email).await;
+    let (token, _ws_id) = ws_signup_and_create_workspace(&addr, &jwt, &pool, &email).await;
 
     let url = format!("ws://{}/ws?token={}", addr, token);
     let (ws_stream, resp) =
@@ -1060,36 +1118,25 @@ async fn test_ws_connect_with_invalid_token_fails() {
 async fn ws_signup_and_join_workspace(
     addr: &str,
     jwt: &JwtConfig,
+    pool: &sqlx::PgPool,
     email: &str,
     workspace_id: Uuid,
     owner_token: &str,
 ) -> (String, Uuid) {
-    let client = reqwest::Client::new();
-    let base = format!("http://{}", addr);
-
-    let resp: Value = client
-        .post(format!("{}/api/auth/signup", base))
-        .json(&serde_json::json!({
-            "email": email,
-            "password": "TestPass1!",
-            "name": "WS Test User 2"
-        }))
-        .send()
-        .await
-        .unwrap()
-        .json()
+    let password_hash = kahf_auth::password::hash_password("TestPass1!").unwrap();
+    let user = kahf_db::user_repo::create_user(pool, email, &password_hash, "WS Test User 2")
         .await
         .unwrap();
+    kahf_db::user_repo::mark_email_verified(pool, user.id).await.unwrap();
 
-    let access_token = resp["access_token"].as_str().unwrap().to_string();
-    let claims = kahf_auth::jwt::verify_token(jwt, &access_token).unwrap();
-    let user_id = claims.sub;
+    let client = reqwest::Client::new();
+    let base = format!("http://{}", addr);
 
     client
         .post(format!("{}/api/workspaces/{}/members", base, workspace_id))
         .header("authorization", format!("Bearer {}", owner_token))
         .json(&serde_json::json!({
-            "user_id": user_id,
+            "user_id": user.id,
             "role": "member"
         }))
         .send()
@@ -1098,13 +1145,13 @@ async fn ws_signup_and_join_workspace(
 
     let ws_token = kahf_auth::jwt::issue_access_token(
         jwt,
-        user_id,
+        user.id,
         Some(workspace_id),
         None,
     )
     .unwrap();
 
-    (ws_token, user_id)
+    (ws_token, user.id)
 }
 
 #[tokio::test]
@@ -1112,11 +1159,11 @@ async fn test_ws_presence_broadcast() {
     use futures_util::StreamExt;
     use tokio_tungstenite::tungstenite::Message;
 
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
 
     let email1 = unique_email();
     let (token1, ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email1).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email1).await;
 
     let url1 = format!("ws://{}/ws?token={}", addr, token1);
     let (mut ws1, _) = tokio_tungstenite::connect_async(&url1).await.unwrap();
@@ -1125,7 +1172,7 @@ async fn test_ws_presence_broadcast() {
 
     let email2 = unique_email();
     let (token2, _user2_id) =
-        ws_signup_and_join_workspace(&addr, &jwt, &email2, ws_id, &token1).await;
+        ws_signup_and_join_workspace(&addr, &jwt, &pool, &email2, ws_id, &token1).await;
 
     let url2 = format!("ws://{}/ws?token={}", addr, token2);
     let (_ws2, _) = tokio_tungstenite::connect_async(&url2).await.unwrap();
@@ -1154,18 +1201,18 @@ async fn test_ws_chat_message_broadcast() {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
 
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
 
     let email1 = unique_email();
     let (token1, ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email1).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email1).await;
 
     let url1 = format!("ws://{}/ws?token={}", addr, token1);
     let (mut ws1, _) = tokio_tungstenite::connect_async(&url1).await.unwrap();
 
     let email2 = unique_email();
     let (token2, _user2_id) =
-        ws_signup_and_join_workspace(&addr, &jwt, &email2, ws_id, &token1).await;
+        ws_signup_and_join_workspace(&addr, &jwt, &pool, &email2, ws_id, &token1).await;
     let url2 = format!("ws://{}/ws?token={}", addr, token2);
     let (mut ws2, _) = tokio_tungstenite::connect_async(&url2).await.unwrap();
 
@@ -1205,11 +1252,11 @@ async fn test_ws_crdt_join_returns_state() {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
 
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
 
     let email = unique_email();
     let (token, _ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email).await;
     let url = format!("ws://{}/ws?token={}", addr, token);
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
 
@@ -1248,10 +1295,10 @@ async fn test_ws_entity_created_broadcast() {
     use futures_util::StreamExt;
     use tokio_tungstenite::tungstenite::Message;
 
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
     let email = unique_email();
     let (token, _ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email).await;
 
     let url = format!("ws://{}/ws?token={}", addr, token);
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
@@ -1301,10 +1348,10 @@ async fn test_ws_entity_updated_broadcast() {
     use futures_util::StreamExt;
     use tokio_tungstenite::tungstenite::Message;
 
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
     let email = unique_email();
     let (token, _ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email).await;
 
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
@@ -1362,10 +1409,10 @@ async fn test_ws_entity_deleted_broadcast() {
     use futures_util::StreamExt;
     use tokio_tungstenite::tungstenite::Message;
 
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
     let email = unique_email();
     let (token, _ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email).await;
 
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
@@ -1415,10 +1462,10 @@ async fn test_ws_entity_deleted_broadcast() {
 
 #[tokio::test]
 async fn test_rbac_owner_can_manage_entities() {
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
     let email = unique_email();
     let (token, _ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &email).await;
 
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
@@ -1455,15 +1502,15 @@ async fn test_rbac_owner_can_manage_entities() {
 
 #[tokio::test]
 async fn test_rbac_member_can_read_create_update_but_not_delete() {
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
 
     let owner_email = unique_email();
     let (owner_token, ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &owner_email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &owner_email).await;
 
     let member_email = unique_email();
     let (member_token, _member_id) =
-        ws_signup_and_join_workspace(&addr, &jwt, &member_email, ws_id, &owner_token).await;
+        ws_signup_and_join_workspace(&addr, &jwt, &pool, &member_email, ws_id, &owner_token).await;
 
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
@@ -1508,11 +1555,11 @@ async fn test_rbac_member_can_read_create_update_but_not_delete() {
 
 #[tokio::test]
 async fn test_rbac_guest_can_only_read() {
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
 
     let owner_email = unique_email();
     let (owner_token, ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &owner_email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &owner_email).await;
 
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
@@ -1528,27 +1575,17 @@ async fn test_rbac_guest_can_only_read() {
     let entity_id = created["id"].as_str().unwrap();
 
     let guest_email = unique_email();
-    let guest_resp: Value = client
-        .post(format!("{}/api/auth/signup", base))
-        .json(&serde_json::json!({
-            "email": guest_email,
-            "password": "GuestPass1!",
-            "name": "Guest User"
-        }))
-        .send()
-        .await
-        .unwrap()
-        .json()
+    let guest_hash = kahf_auth::password::hash_password("GuestPass1!").unwrap();
+    let guest_user = kahf_db::user_repo::create_user(&pool, &guest_email, &guest_hash, "Guest User")
         .await
         .unwrap();
-    let guest_access = guest_resp["access_token"].as_str().unwrap();
-    let guest_claims = kahf_auth::jwt::verify_token(&jwt, guest_access).unwrap();
+    kahf_db::user_repo::mark_email_verified(&pool, guest_user.id).await.unwrap();
 
     client
         .post(format!("{}/api/workspaces/{}/members", base, ws_id))
         .header("authorization", format!("Bearer {}", owner_token))
         .json(&serde_json::json!({
-            "user_id": guest_claims.sub,
+            "user_id": guest_user.id,
             "role": "guest"
         }))
         .send()
@@ -1557,7 +1594,7 @@ async fn test_rbac_guest_can_only_read() {
 
     let guest_ws_token = kahf_auth::jwt::issue_access_token(
         &jwt,
-        guest_claims.sub,
+        guest_user.id,
         Some(ws_id),
         None,
     )
@@ -1591,33 +1628,24 @@ async fn test_rbac_guest_can_only_read() {
 
 #[tokio::test]
 async fn test_rbac_no_role_gets_forbidden() {
-    let (addr, jwt, _pool) = start_test_server().await;
+    let (addr, jwt, pool) = start_test_server().await;
 
     let owner_email = unique_email();
     let (_owner_token, ws_id) =
-        ws_signup_and_create_workspace(&addr, &jwt, &owner_email).await;
+        ws_signup_and_create_workspace(&addr, &jwt, &pool, &owner_email).await;
 
     let outsider_email = unique_email();
     let client = reqwest::Client::new();
     let base = format!("http://{}", addr);
-    let resp: Value = client
-        .post(format!("{}/api/auth/signup", base))
-        .json(&serde_json::json!({
-            "email": outsider_email,
-            "password": "Outsider1!",
-            "name": "Outsider"
-        }))
-        .send()
-        .await
-        .unwrap()
-        .json()
+    let outsider_hash = kahf_auth::password::hash_password("Outsider1!").unwrap();
+    let outsider_user = kahf_db::user_repo::create_user(&pool, &outsider_email, &outsider_hash, "Outsider")
         .await
         .unwrap();
+    kahf_db::user_repo::mark_email_verified(&pool, outsider_user.id).await.unwrap();
 
-    let outsider_claims = kahf_auth::jwt::verify_token(&jwt, resp["access_token"].as_str().unwrap()).unwrap();
     let outsider_token = kahf_auth::jwt::issue_access_token(
         &jwt,
-        outsider_claims.sub,
+        outsider_user.id,
         Some(ws_id),
         None,
     )

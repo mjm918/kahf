@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Kahf is a Huly-equivalent project management platform. Rust modular monolith backend (axum, sqlx, yrs CRDT) + React 19 + Syncfusion EJ2 frontend. Event-sourced data model with PostgreSQL 17 + TimescaleDB. Self-hosted via Docker Compose.
+Kahf is a Huly-equivalent project management platform. Rust modular monolith backend (axum, sqlx, yrs CRDT) + Angular 19 + Syncfusion EJ2 frontend. Azure Portal-style UI. bun as the ONLY frontend runtime/package manager. Event-sourced data model with PostgreSQL 17 + TimescaleDB. Self-hosted via Docker Compose.
 
 See `.claude/docs/plan/` for full architecture documents:
 - `ARCHITECTURE_DESIGN.md` — Decisions, schema, crate structure, API design
@@ -18,13 +18,14 @@ See `.claude/docs/plan/` for full architecture documents:
 - EVERY module MUST be designed as an abstraction with traits/interfaces. No tightly coupled code.
 - Use dependency injection. Concrete implementations behind trait boundaries.
 - Backend crates communicate through well-defined public APIs, never internal state.
-- Frontend modules use hooks and stores for state — no prop drilling beyond 2 levels.
+- Frontend modules use Angular services and signals for state — no deep input drilling beyond 2 levels.
+- bun is the ONLY runtime and package manager for frontend. No npm, yarn, or pnpm. Ever.
 
 ### Code Style
 - NO inline comments. Ever. Zero tolerance.
 - EVERY file MUST have a single `//!` block comment at the top of the file explaining what the file does AND documenting all public items within it.
 - Rust: ONLY `//!` block comments at the top of the file. No `///` item-level doc comments. No `//` comments anywhere.
-- TypeScript/React: ONLY `/** */` JSDoc block comments at the top of each file. No `//` comments anywhere.
+- TypeScript/Angular: ONLY `/** */` JSDoc block comments at the top of each file. No `//` comments anywhere.
 
 ### Libraries Over Custom Code
 - ALWAYS prefer an established library over writing custom code.
@@ -32,9 +33,15 @@ See `.claude/docs/plan/` for full architecture documents:
 - Use `context7` MCP to look up library docs when unsure about APIs.
 - Syncfusion components are MANDATORY for all UI elements. No custom UI widgets when Syncfusion has an equivalent.
 
+### UI Design — Azure Portal Mandatory
+- The UI MUST follow the Azure Portal design language and color scheme.
+- Primary color: Azure blue (#0078D4). Neutral grays: #F3F2F1, #EDEBE9, #D2D0CE. White content areas.
+- Layout: Collapsible left nav blade, breadcrumb navigation, command bars, business-grade data density.
+- Typography: Segoe UI font family. Flat design with subtle borders, no heavy shadows.
+
 ### Syncfusion UI — Mandatory
-- ALL UI components MUST use Syncfusion EJ2 React components.
-- Refer to `syncfusion-blazor-assistant` MCP for component guidance (adapt Blazor patterns to React).
+- ALL UI components MUST use Syncfusion EJ2 Angular components.
+- Refer to `syncfusion-angular-assistant` MCP for component guidance.
 - Component mapping (from ARCHITECTURE_DESIGN.md):
   - Board → KanbanComponent
   - Tasks → GridComponent, GanttComponent
@@ -84,12 +91,13 @@ See `.claude/docs/plan/` for full architecture documents:
 - Serialization: serde 1, serde_json 1
 - Logging: tracing 0.1
 
-### Frontend (React + TypeScript)
-- React 19, React Router 7, Vite
-- Syncfusion EJ2 React v27 (all components)
+### Frontend (Angular + TypeScript, bun runtime)
+- Angular 19, Angular Router, Angular CLI (via bun)
+- Syncfusion EJ2 Angular v27 (all components)
 - Y.js 13 + y-websocket 2 + y-prosemirror 1
-- Zustand 5 (state management)
-- Axios 1 (HTTP client)
+- Angular Signals / NgRx (state management)
+- HttpClient (Angular built-in HTTP client)
+- bun for ALL operations: install, run, test, build
 
 ### Infrastructure
 - PostgreSQL 17 + TimescaleDB
@@ -104,7 +112,7 @@ See `.claude/docs/plan/` for full architecture documents:
 | Tool | When to Use |
 |------|-------------|
 | `dbhub` | Query staging DB schema/data for test design, verify migrations |
-| `syncfusion-blazor-assistant` | Look up Syncfusion component APIs, get usage examples |
+| `syncfusion-angular-assistant` | Look up Syncfusion Angular component APIs, get usage examples |
 | `playwright` | Validate UI features visually, test interactions |
 | `grep` | Search GitHub for implementation patterns and examples |
 | `context7` | Look up library documentation (crates, npm packages) |
@@ -131,9 +139,10 @@ kahf/crates/
 ## Frontend Structure
 
 ```
-frontend/src/
-├── api/              # REST client, WebSocket, Y.js
-├── layouts/          # AppLayout, Header, Navigator, DetailPanel
+frontend/src/app/
+├── core/             # Services (auth, websocket, realtime), guards, interceptors
+├── shared/           # Shared components, pipes, directives
+├── layouts/          # AppLayout, Header, Navigator, DetailPanel (Azure Portal style)
 ├── modules/
 │   ├── board/        # Syncfusion Kanban
 │   ├── tasks/        # Syncfusion DataGrid + Gantt
@@ -144,6 +153,5 @@ frontend/src/
 │   ├── drive/        # Syncfusion FileManager
 │   ├── hr/           # Syncfusion DataGrid + Diagram
 │   └── settings/
-├── hooks/            # useAuth, useWebSocket, useCollaboration
-└── store/            # Zustand
+└── store/            # NgRx or Angular Signals
 ```

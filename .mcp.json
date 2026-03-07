@@ -11,12 +11,12 @@
         "postgres://postgres:frf%40%21333%21%40Fg@103.209.156.107:5432/kahflane?sslmode=disable"
       ]
     },
-    "syncfusion-blazor-assistant": {
+    "syncfusion-angular-assistant": {
       "type": "stdio",
       "command": "bunx",
       "args": [
         "-y",
-        "@syncfusion/blazor-assistant@latest"
+        "@syncfusion/angular-assistant@latest"
       ],
       "env": {
         "Syncfusion_API_Key": "HXwTtGgBxp/ZfiRkMHZRmhZWy8DeZV50+xUEUm4LfR1QLQ5+XX36P5mmU6eVHPdvlIee/1/DVRn3EuyetXTAMg=="

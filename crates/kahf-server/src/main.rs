@@ -13,6 +13,8 @@
 //! - `PORT` — Bind port (default `3000`)
 //! - `RUST_LOG` — Tracing filter (default `kahf=debug,tower_http=debug`)
 
+use std::sync::Arc;
+
 use tracing_subscriber::EnvFilter;
 
 use kahf_server::app_state::AppState;
@@ -43,9 +45,10 @@ async fn main() -> eyre::Result<()> {
     let rbac = kahf_rbac::RbacEnforcer::new(&config.database_url).await?;
 
     let jwt = kahf_auth::JwtConfig::new(config.jwt_secret);
+    let mailer: Arc<dyn kahf_auth::EmailSender> = Arc::new(config.smtp);
     let hub = kahf_realtime::Hub::new(db.pool().clone());
     let event_bus = kahf_realtime::BroadcastEventBus::new(1024);
-    let state = AppState::new(db, jwt.clone(), hub, event_bus, rbac);
+    let state = AppState::new(db, jwt.clone(), mailer, hub, event_bus, rbac);
 
     let app = kahf_server::build_app(state, jwt);
 

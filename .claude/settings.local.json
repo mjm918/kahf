@@ -5,15 +5,18 @@
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "Bash(cargo test:*)",
-      "Bash(cargo info:*)"
+      "Bash(cargo info:*)",
+      "mcp__syncfusion-angular-assistant__sf_angular_component"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "dbhub",
     "syncfusion-blazor-assistant",
     "playwright",
     "grep",
-    "context7"
+    "context7",
+    "syncfusion-angular-assistant"
   ],
   "hooks": {
     "PreToolUse": [

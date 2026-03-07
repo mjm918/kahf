@@ -3,15 +3,18 @@
 //! ## Config
 //!
 //! Holds all runtime configuration: `database_url`, `jwt_secret`,
-//! `host`, `port`. Loaded via `Config::from_env()` which reads
-//! `DATABASE_URL`, `JWT_SECRET`, `HOST` (default `0.0.0.0`),
-//! and `PORT` (default `3000`).
+//! `smtp` (email settings), `host`, `port`. Loaded via
+//! `Config::from_env()` which reads `DATABASE_URL`, `JWT_SECRET`,
+//! SMTP env vars, `HOST` (default `0.0.0.0`), and `PORT` (default
+//! `3000`).
 
 use eyre::WrapErr;
+use kahf_auth::SmtpConfig;
 
 pub struct Config {
     pub database_url: String,
     pub jwt_secret: String,
+    pub smtp: SmtpConfig,
     pub host: String,
     pub port: u16,
 }
@@ -24,6 +27,8 @@ impl Config {
         let jwt_secret = std::env::var("JWT_SECRET")
             .wrap_err("JWT_SECRET must be set")?;
 
+        let smtp = SmtpConfig::from_env()?;
+
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
 
         let port = std::env::var("PORT")
@@ -34,6 +39,7 @@ impl Config {
         Ok(Self {
             database_url,
             jwt_secret,
+            smtp,
             host,
             port,
         })
