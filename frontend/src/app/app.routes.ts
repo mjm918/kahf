@@ -1,7 +1,7 @@
 /**
  * Top-level application routes.
  *
- * Auth pages (login, signup, verify-otp) are protected by the guest
+ * Auth pages (login, signup, verify-otp, forgot-password, reset-password) are protected by the guest
  * guard so authenticated users get redirected to the dashboard. The
  * root path is protected by the auth guard. Lazy-loaded where possible.
  */
@@ -25,6 +25,16 @@ export const routes: Routes = [
     path: 'auth/verify-otp',
     canActivate: [guestGuard],
     loadComponent: () => import('./auth/verify-otp/verify-otp').then(m => m.VerifyOtp),
+  },
+  {
+    path: 'auth/forgot-password',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./auth/forgot-password/forgot-password').then(m => m.ForgotPassword),
+  },
+  {
+    path: 'auth/reset-password',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./auth/reset-password/reset-password').then(m => m.ResetPassword),
   },
   {
     path: '',

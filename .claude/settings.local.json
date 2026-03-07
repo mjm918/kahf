@@ -15,7 +15,9 @@
       "mcp__playwright__browser_take_screenshot",
       "mcp__playwright__browser_resize",
       "Bash(chmod +x:*)",
-      "Bash(.claude/hooks/check-no-inline-comments.sh:*)"
+      "Bash(.claude/hooks/check-no-inline-comments.sh:*)",
+      "Bash(npx ng:*)",
+      "mcp__playwright__browser_type"
     ]
   },
   "enableAllProjectMcpServers": true,

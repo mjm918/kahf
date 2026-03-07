@@ -1,13 +1,22 @@
 //! High-level authentication service operations.
 //!
+//! ## registration_open
+//!
+//! Returns `true` if the system has zero users (open registration for the
+//! first owner). Once a user exists, registration is closed and new members
+//! can only join via invitation.
+//!
 //! ## signup
 //!
 //! Creates a new user account with `email_verified = false`. Hashes the
 //! password with Argon2id, inserts the user, generates a 6-digit OTP,
-//! stores it in the database, and sends it via SMTP. Accepts an optional
-//! `invite_token` — if provided, validates it and marks the invitation
-//! as accepted after user creation. Returns `SignupResponse` with
-//! `user_id` and `email` (no tokens yet — user must verify email first).
+//! stores it in the database, and sends it via SMTP. If users already
+//! exist, an `invite_token` is required — the first registrant becomes
+//! the tenant owner, all subsequent users must be invited. Accepts an
+//! optional `invite_token` — if provided, validates it and marks the
+//! invitation as accepted after user creation. Returns `SignupResponse`
+//! with `user_id` and `email` (no tokens yet — user must verify email
+//! first).
 //!
 //! ## verify_otp
 //!
@@ -123,6 +132,11 @@ pub struct InviteValidation {
     pub expires_at: DateTime<Utc>,
 }
 
+pub async fn registration_open(pool: &PgPool) -> eyre::Result<bool> {
+    let count = kahf_db::user_repo::count_users(pool).await?;
+    Ok(count == 0)
+}
+
 pub async fn signup(
     pool: &PgPool,
     mailer: &dyn EmailSender,
@@ -131,6 +145,14 @@ pub async fn signup(
     name: &str,
     invite_token: Option<&str>,
 ) -> eyre::Result<SignupResponse> {
+    let user_count = kahf_db::user_repo::count_users(pool).await?;
+
+    if user_count > 0 && invite_token.is_none() {
+        return Err(kahf_core::KahfError::forbidden(
+            "registration is closed — new members can only join via invitation",
+        ));
+    }
+
     if let Some(token) = invite_token {
         let invitation = kahf_db::invite_repo::get_invitation_by_token(pool, token)
             .await?

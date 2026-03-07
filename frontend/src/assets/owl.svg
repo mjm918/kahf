@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <!-- Body -->
+  <ellipse cx="60" cy="72" rx="34" ry="36" fill="#0078D4"/>
+  <!-- Chest feather pattern -->
+  <ellipse cx="60" cy="82" rx="20" ry="22" fill="#2B88D8"/>
+  <ellipse cx="60" cy="86" rx="13" ry="15" fill="#3C96DF"/>
+  <!-- Head -->
+  <circle cx="60" cy="38" r="26" fill="#0078D4"/>
+  <!-- Ear tufts -->
+  <path d="M38 22 L42 8 L50 24Z" fill="#005A9E"/>
+  <path d="M82 22 L78 8 L70 24Z" fill="#005A9E"/>
+  <!-- Eye rings -->
+  <circle cx="48" cy="38" r="12" fill="#F3F2F1"/>
+  <circle cx="72" cy="38" r="12" fill="#F3F2F1"/>
+  <!-- Eyes -->
+  <circle cx="48" cy="38" r="6" fill="#1A1A1A"/>
+  <circle cx="72" cy="38" r="6" fill="#1A1A1A"/>
+  <!-- Eye shine -->
+  <circle cx="50" cy="36" r="2" fill="#FFFFFF"/>
+  <circle cx="74" cy="36" r="2" fill="#FFFFFF"/>
+  <!-- Beak -->
+  <path d="M56 46 L60 54 L64 46Z" fill="#D2D0CE"/>
+  <!-- Brow line -->
+  <path d="M36 32 Q48 26 56 34" stroke="#005A9E" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M84 32 Q72 26 64 34" stroke="#005A9E" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Wings -->
+  <path d="M26 60 Q16 72 22 96 Q28 88 32 72Z" fill="#005A9E"/>
+  <path d="M94 60 Q104 72 98 96 Q92 88 88 72Z" fill="#005A9E"/>
+  <!-- Feet -->
+  <path d="M48 106 L44 114 M48 106 L48 114 M48 106 L52 114" stroke="#D2D0CE" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M72 106 L68 114 M72 106 L72 114 M72 106 L76 114" stroke="#D2D0CE" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

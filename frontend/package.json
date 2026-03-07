@@ -25,6 +25,7 @@
     "@syncfusion/ej2-angular-navigations": "^32.2.8",
     "@syncfusion/ej2-angular-notifications": "^32.2.3",
     "@syncfusion/ej2-angular-popups": "^32.2.8",
+    "@syncfusion/ej2-angular-progressbar": "^32.2.3",
     "@syncfusion/ej2-base": "^32.2.6",
     "@syncfusion/ej2-fluent2-theme": "^32.2.8",
     "axios": "1",

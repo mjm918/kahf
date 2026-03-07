@@ -1,6 +1,6 @@
 //! Authentication endpoints: signup, login, refresh, logout, verify-otp,
-//! resend-otp, forgot-password, reset-password, invite, validate-invite,
-//! list invitations, cancel invitation.
+//! resend-otp, forgot-password, reset-password, registration-status,
+//! invite, validate-invite, list invitations, cancel invitation.
 //!
 //! ## POST /api/auth/signup
 //!
@@ -45,6 +45,12 @@
 //! Validates reset OTP and updates password. Body: `{ email, code,
 //! new_password }`. Returns `{ message }`.
 //!
+//! ## GET /api/auth/registration-status
+//!
+//! Returns whether open registration is available. Returns
+//! `{ open: true }` if no users exist yet (first user becomes tenant
+//! owner), `{ open: false }` if users already exist (invite-only).
+//!
 //! ## POST /api/auth/invite
 //!
 //! Sends a tenant-level invitation to the given email. Requires
@@ -84,6 +90,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/forgot-password", post(forgot_password))
         .route("/api/auth/reset-password", post(reset_password))
+        .route("/api/auth/registration-status", get(registration_status))
         .route("/api/auth/invite", post(invite_user))
         .route("/api/auth/invite/validate/{token}", get(validate_invite))
         .route("/api/auth/invitations", get(list_invitations))
@@ -238,6 +245,13 @@ async fn reset_password(
     .await?;
 
     Ok(axum::Json(serde_json::to_value(resp)?))
+}
+
+async fn registration_status(
+    State(state): State<AppState>,
+) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let open = kahf_auth::service::registration_open(state.pool()).await?;
+    Ok(axum::Json(serde_json::json!({ "open": open })))
 }
 
 #[derive(Deserialize)]

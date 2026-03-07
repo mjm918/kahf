@@ -60,7 +60,7 @@ impl RbacEnforcer {
         action: &str,
     ) -> eyre::Result<()> {
         if !self.check(user_id, workspace_id, resource, action).await? {
-            return Err(kahf_core::KahfError::forbidden());
+            return Err(kahf_core::KahfError::forbidden("insufficient permissions"));
         }
         Ok(())
     }

@@ -23,8 +23,8 @@ impl IntoResponse for AppError {
             Some(KahfError::Unauthorized) => {
                 (StatusCode::UNAUTHORIZED, "unauthorized".into())
             }
-            Some(KahfError::Forbidden) => {
-                (StatusCode::FORBIDDEN, "forbidden".into())
+            Some(KahfError::Forbidden(msg)) => {
+                (StatusCode::FORBIDDEN, msg.clone())
             }
             Some(KahfError::Validation(msg)) => {
                 (StatusCode::BAD_REQUEST, msg.clone())

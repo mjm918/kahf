@@ -8,7 +8,7 @@
 //!
 //! - `NotFound { entity, id }` — requested resource does not exist
 //! - `Unauthorized` — caller is not authenticated
-//! - `Forbidden` — caller lacks permission for the requested action
+//! - `Forbidden(String)` — caller lacks permission for the requested action
 //! - `Validation(String)` — input failed validation
 //! - `Conflict(String)` — concurrent modification conflict
 //! - `Internal(String)` — unexpected internal failure
@@ -17,7 +17,7 @@
 //!
 //! Each variant has a static method that returns `eyre::Report`:
 //! `KahfError::not_found("task", id)`, `KahfError::validation("bad input")`,
-//! `KahfError::unauthorized()`, `KahfError::forbidden()`, etc.
+//! `KahfError::unauthorized()`, `KahfError::forbidden("reason")`, etc.
 
 use std::fmt;
 
@@ -25,7 +25,7 @@ use std::fmt;
 pub enum KahfError {
     NotFound { entity: String, id: String },
     Unauthorized,
-    Forbidden,
+    Forbidden(String),
     Validation(String),
     Conflict(String),
     Internal(String),
@@ -36,7 +36,7 @@ impl fmt::Display for KahfError {
         match self {
             Self::NotFound { entity, id } => write!(f, "{entity} not found: {id}"),
             Self::Unauthorized => write!(f, "unauthorized"),
-            Self::Forbidden => write!(f, "forbidden"),
+            Self::Forbidden(msg) => write!(f, "forbidden: {msg}"),
             Self::Validation(msg) => write!(f, "validation error: {msg}"),
             Self::Conflict(msg) => write!(f, "conflict: {msg}"),
             Self::Internal(msg) => write!(f, "internal error: {msg}"),
@@ -70,7 +70,7 @@ impl KahfError {
         eyre::Report::new(Self::Unauthorized)
     }
 
-    pub fn forbidden() -> eyre::Report {
-        eyre::Report::new(Self::Forbidden)
+    pub fn forbidden(msg: impl Into<String>) -> eyre::Report {
+        eyre::Report::new(Self::Forbidden(msg.into()))
     }
 }

@@ -1,10 +1,14 @@
 /**
  * Authentication service handling signup, OTP verification, login,
- * token refresh, and logout.
+ * token refresh, logout, forgot password, reset password, and
+ * registration status checks.
  *
- * Stores JWT tokens in localStorage. Exposes reactive `isAuthenticated`
- * and `currentUser` signals for use in components and guards. All
- * methods delegate to the backend API via the shared Axios instance.
+ * Stores JWT tokens in localStorage (remember me) or sessionStorage
+ * (session-only). Exposes reactive `isAuthenticated` and `currentUser`
+ * signals for use in components and guards. `registrationOpen` checks
+ * whether the system allows open registration (only when no users
+ * exist yet). All methods delegate to the backend API via the shared
+ * Axios instance.
  */
 
 import { Injectable, signal, computed } from '@angular/core';
@@ -40,8 +44,13 @@ export class AuthService {
 
   constructor(private router: Router) {}
 
-  async signup(email: string, password: string, name: string): Promise<SignupResponse> {
-    const { data } = await api.post<SignupResponse>('/auth/signup', { email, password, name });
+  async registrationOpen(): Promise<boolean> {
+    const { data } = await api.get<{ open: boolean }>('/auth/registration-status');
+    return data.open;
+  }
+
+  async signup(email: string, password: string, name: string, inviteToken?: string): Promise<SignupResponse> {
+    const { data } = await api.post<SignupResponse>('/auth/signup', { email, password, name, invite_token: inviteToken });
     return data;
   }
 
@@ -55,16 +64,26 @@ export class AuthService {
     return data;
   }
 
-  async login(email: string, password: string): Promise<void> {
+  async login(email: string, password: string, rememberMe: boolean = true): Promise<void> {
     const { data } = await api.post<AuthResponse>('/auth/login', { email, password });
-    this.storeTokens(data);
+    this.storeTokens(data, rememberMe);
+  }
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const { data } = await api.post<{ message: string }>('/auth/forgot-password', { email });
+    return data;
+  }
+
+  async resetPassword(email: string, code: string, newPassword: string): Promise<{ message: string }> {
+    const { data } = await api.post<{ message: string }>('/auth/reset-password', { email, code, new_password: newPassword });
+    return data;
   }
 
   async refreshToken(): Promise<string> {
-    const refreshToken = localStorage.getItem('refresh_token');
+    const refreshToken = this.getStorage().getItem('refresh_token');
     if (!refreshToken) throw new Error('no refresh token');
     const { data } = await api.post<{ access_token: string }>('/auth/refresh', { refresh_token: refreshToken });
-    localStorage.setItem('access_token', data.access_token);
+    this.getStorage().setItem('access_token', data.access_token);
     return data.access_token;
   }
 
@@ -72,20 +91,34 @@ export class AuthService {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+    localStorage.removeItem('remember_me');
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('refresh_token');
+    sessionStorage.removeItem('user');
     this.user.set(null);
     this.router.navigate(['/auth/login']);
   }
 
-  private storeTokens(data: AuthResponse): void {
-    localStorage.setItem('access_token', data.access_token);
-    localStorage.setItem('refresh_token', data.refresh_token);
+  private getStorage(): Storage {
+    return localStorage.getItem('remember_me') === '1' ? localStorage : sessionStorage;
+  }
+
+  private storeTokens(data: AuthResponse, rememberMe: boolean = true): void {
+    if (rememberMe) {
+      localStorage.setItem('remember_me', '1');
+    } else {
+      localStorage.removeItem('remember_me');
+    }
+    const storage = this.getStorage();
+    storage.setItem('access_token', data.access_token);
+    storage.setItem('refresh_token', data.refresh_token);
     const u: AuthUser = { user_id: data.user_id, email: data.email, name: data.name };
-    localStorage.setItem('user', JSON.stringify(u));
+    storage.setItem('user', JSON.stringify(u));
     this.user.set(u);
   }
 
   private loadUser(): AuthUser | null {
-    const raw = localStorage.getItem('user');
+    const raw = this.getStorage().getItem('user');
     if (!raw) return null;
     try { return JSON.parse(raw); } catch { return null; }
   }

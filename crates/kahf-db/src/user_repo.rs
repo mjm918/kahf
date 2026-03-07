@@ -27,6 +27,11 @@
 //! ## mark_email_verified
 //!
 //! Sets `email_verified = true` for the given user ID.
+//!
+//! ## count_users
+//!
+//! Returns the total number of users in the system. Used to determine
+//! whether open registration is allowed (only when zero users exist).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -120,4 +125,12 @@ pub async fn mark_email_verified(pool: &PgPool, user_id: Uuid) -> eyre::Result<(
         .await?;
 
     Ok(())
+}
+
+pub async fn count_users(pool: &PgPool) -> eyre::Result<i64> {
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await?;
+
+    Ok(count)
 }
