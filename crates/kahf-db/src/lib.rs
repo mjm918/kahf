@@ -18,6 +18,7 @@
 //! - `otp_repo` — Email OTP create, validate, invalidate
 //! - `invite_repo` — Tenant-level invitation create, validate, accept, cancel
 //! - `tenant_repo` — Tenant create, get by owner/id
+//! - `password_history_repo` — Password history for reuse prevention
 
 pub mod pool;
 pub mod event_store;
@@ -29,5 +30,6 @@ pub mod crdt_repo;
 pub mod otp_repo;
 pub mod invite_repo;
 pub mod tenant_repo;
+pub mod password_history_repo;
 
 pub use pool::DbPool;

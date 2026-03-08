@@ -95,6 +95,7 @@ use crate::password::{hash_password, verify_password};
 
 const PURPOSE_EMAIL_VERIFICATION: &str = "email_verification";
 const PURPOSE_PASSWORD_RESET: &str = "password_reset";
+const PASSWORD_REUSE_MONTHS: i32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthResponse {
@@ -174,6 +175,7 @@ pub async fn signup(
 
     let password_hash = hash_password(password)?;
     let user = kahf_db::user_repo::create_user(pool, email, &password_hash, first_name, last_name).await?;
+    kahf_db::password_history_repo::save_password(pool, user.id, &password_hash).await?;
 
     if let Some(cn) = company_name {
         kahf_db::tenant_repo::create_tenant(pool, cn, user.id).await?;
@@ -349,7 +351,19 @@ pub async fn reset_password(
         .await?
         .ok_or_else(|| kahf_core::KahfError::validation("invalid or expired reset code"))?;
 
+    let recent_hashes = kahf_db::password_history_repo::get_recent_hashes(pool, user.id, PASSWORD_REUSE_MONTHS).await?;
+
+    let current_is_reused = verify_password(new_password, &user.password).is_ok();
+    let history_is_reused = recent_hashes.iter().any(|h| verify_password(new_password, h).is_ok());
+
+    if current_is_reused || history_is_reused {
+        return Err(kahf_core::KahfError::validation(
+            "this password was used recently — please choose a different password",
+        ));
+    }
+
     let password_hash = hash_password(new_password)?;
+    kahf_db::password_history_repo::save_password(pool, user.id, &user.password).await?;
     kahf_db::user_repo::update_password(pool, user.id, &password_hash).await?;
 
     kahf_db::otp_repo::mark_otp_used(pool, otp.id).await?;
