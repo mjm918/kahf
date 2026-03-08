@@ -23,6 +23,9 @@ sqlx-adapter = { version = "1.8", default-features = false, features = ["postgre
 
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "streams"] }
 
+apalis = { version = "0.7", features = ["limit", "tracing"] }
+apalis-redis = "0.7"
+
 meilisearch-sdk = "0.27"
 
 aws-sdk-s3 = "1"
@@ -57,3 +60,4 @@ kahf-db = { path = "crates/kahf-db" }
 kahf-auth = { path = "crates/kahf-auth" }
 kahf-email = { path = "crates/kahf-email" }
 kahf-rbac = { path = "crates/kahf-rbac" }
+kahf-worker = { path = "crates/kahf-worker" }

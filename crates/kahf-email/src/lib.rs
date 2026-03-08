@@ -175,7 +175,7 @@ impl SmtpEmailSender {
                 .build(),
         };
 
-        mailer.send(&email).wrap_err("failed to send email")?;
+        mailer.send(&email).map_err(|e| eyre::eyre!("SMTP send failed to {}: {}", to_email, e))?;
 
         Ok(())
     }

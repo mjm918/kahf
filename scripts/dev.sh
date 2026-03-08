@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-#! Dev script: kills existing backend/frontend instances, then starts both.
-#! Backend (cargo run) starts first, followed by frontend (bun run start).
-#! Press Ctrl+C to stop both processes.
+#! Dev script: starts Docker services, then runs backend and frontend.
+#! Copies .env.development to .env, starts Docker Compose infra,
+#! kills existing backend/frontend instances, then starts both.
+#! Press Ctrl+C to stop backend and frontend (Docker services keep running).
 
 set -euo pipefail
 
@@ -27,11 +28,19 @@ cleanup() {
   kill "$FRONTEND_PID" 2>/dev/null || true
   wait "$BACKEND_PID" 2>/dev/null || true
   wait "$FRONTEND_PID" 2>/dev/null || true
-  echo "Stopped."
+  echo "Stopped. Docker services still running — use 'docker compose -f docker/docker-compose.yml down' to stop them."
   exit 0
 }
 
 trap cleanup SIGINT SIGTERM
+
+cp "$PROJECT_ROOT/.env.development" "$PROJECT_ROOT/.env"
+
+echo "Starting Docker services..."
+docker compose -f "$PROJECT_ROOT/docker/docker-compose.yml" up -d
+
+echo "Waiting for services to be healthy..."
+sleep 3
 
 kill_port $BACKEND_PORT
 kill_port $FRONTEND_PORT

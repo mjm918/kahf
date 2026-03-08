@@ -11,10 +11,12 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use kahf_auth::jwt::issue_access_token;
-use kahf_auth::{EmailSender, JwtConfig};
+use kahf_auth::JwtConfig;
 use kahf_db::DbPool;
+use kahf_email::EmailSender;
 use kahf_realtime::{BroadcastEventBus, Hub};
 use kahf_server::app_state::AppState;
+use kahf_worker::JobProducer;
 use serde_json::Value;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -40,12 +42,17 @@ fn database_url() -> String {
     std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env or environment")
 }
 
+fn redis_url() -> String {
+    std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into())
+}
+
 async fn make_state(db: DbPool, jwt: JwtConfig) -> AppState {
     let hub = Hub::new(db.pool().clone());
     let event_bus = BroadcastEventBus::new(64);
     let mailer: Arc<dyn EmailSender> = Arc::new(NoopEmailSender);
+    let jobs = JobProducer::noop(&redis_url()).await.unwrap();
     let rbac = kahf_rbac::RbacEnforcer::new(&database_url()).await.unwrap();
-    AppState::new(db, jwt, mailer, hub, event_bus, rbac)
+    AppState::new(db, jwt, mailer, jobs, hub, event_bus, rbac)
 }
 
 async fn assign_owner(state: &AppState, user_id: uuid::Uuid, workspace_id: uuid::Uuid) {
@@ -58,7 +65,7 @@ struct TestContext {
     app: axum::Router,
     jwt: JwtConfig,
     pool: sqlx::PgPool,
-    mailer: Arc<dyn EmailSender>,
+    jobs: JobProducer,
 }
 
 async fn test_ctx() -> TestContext {
@@ -67,9 +74,9 @@ async fn test_ctx() -> TestContext {
     let pool = db.pool().clone();
     let jwt = JwtConfig::new(format!("test-secret-{}", Uuid::new_v4()));
     let state = make_state(db, jwt.clone()).await;
-    let mailer: Arc<dyn EmailSender> = Arc::new(NoopEmailSender);
+    let jobs = JobProducer::noop(&redis_url()).await.unwrap();
     let app = kahf_server::build_app(state, jwt.clone());
-    TestContext { app, jwt, pool, mailer }
+    TestContext { app, jwt, pool, jobs }
 }
 
 #[allow(dead_code)]
@@ -175,7 +182,7 @@ async fn test_signup_creates_user_with_invite() {
     create_verified_user(&ctx.pool, &ctx.jwt, &inviter_email, "InvPass1!", "Inviter", "Test").await;
     let inviter = kahf_db::user_repo::get_user_by_email(&ctx.pool, &inviter_email).await.unwrap().unwrap();
 
-    kahf_auth::service::invite_user(&ctx.pool, &*ctx.mailer, inviter.id, &signup_email).await.unwrap();
+    kahf_auth::service::invite_user(&ctx.pool, &ctx.jobs, inviter.id, &signup_email).await.unwrap();
     let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, &signup_email).await.unwrap().unwrap();
 
     let body = serde_json::json!({
@@ -215,7 +222,7 @@ async fn test_signup_duplicate_email_fails() {
     create_verified_user(&ctx.pool, &ctx.jwt, &inviter_email, "InvPass1!", "Inviter", "Dup").await;
     let inviter = kahf_db::user_repo::get_user_by_email(&ctx.pool, &inviter_email).await.unwrap().unwrap();
 
-    kahf_auth::service::invite_user(&ctx.pool, &*ctx.mailer, inviter.id, &email).await.unwrap();
+    kahf_auth::service::invite_user(&ctx.pool, &ctx.jobs, inviter.id, &email).await.unwrap();
     let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, &email).await.unwrap().unwrap();
 
     signup_ctx(&ctx, &email, "StrongPass1!", "User", "One").await;

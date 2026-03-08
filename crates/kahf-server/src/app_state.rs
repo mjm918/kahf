@@ -3,8 +3,8 @@
 //! ## AppState
 //!
 //! Holds the database pool (`DbPool`) wrapped in `Arc`, JWT
-//! configuration (`JwtConfig`), SMTP configuration (`SmtpConfig`),
-//! WebSocket hub (`Hub`), the in-process event bus
+//! configuration (`JwtConfig`), email sender, job producer for
+//! background tasks, WebSocket hub (`Hub`), the in-process event bus
 //! (`BroadcastEventBus`), and the RBAC enforcer (`RbacEnforcer`).
 //! Extracted by handlers via axum's `State` extractor.
 
@@ -15,6 +15,7 @@ use kahf_email::EmailSender;
 use kahf_db::DbPool;
 use kahf_rbac::RbacEnforcer;
 use kahf_realtime::{BroadcastEventBus, Hub};
+use kahf_worker::JobProducer;
 use sqlx::PgPool;
 
 #[derive(Clone)]
@@ -22,6 +23,7 @@ pub struct AppState {
     pub db: Arc<DbPool>,
     pub jwt: JwtConfig,
     pub mailer: Arc<dyn EmailSender>,
+    pub jobs: JobProducer,
     pub hub: Hub,
     pub event_bus: BroadcastEventBus,
     pub rbac: RbacEnforcer,
@@ -32,6 +34,7 @@ impl AppState {
         db: DbPool,
         jwt: JwtConfig,
         mailer: Arc<dyn EmailSender>,
+        jobs: JobProducer,
         hub: Hub,
         event_bus: BroadcastEventBus,
         rbac: RbacEnforcer,
@@ -40,6 +43,7 @@ impl AppState {
             db: Arc::new(db),
             jwt,
             mailer,
+            jobs,
             hub,
             event_bus,
             rbac,

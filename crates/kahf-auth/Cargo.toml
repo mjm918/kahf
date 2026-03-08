@@ -9,6 +9,7 @@ license.workspace = true
 kahf-core = { workspace = true }
 kahf-db = { workspace = true }
 kahf-email = { workspace = true }
+kahf-worker = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 jsonwebtoken = { workspace = true }
@@ -23,3 +24,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 dotenvy = { workspace = true }
+kahf-worker = { workspace = true }

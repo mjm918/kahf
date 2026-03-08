@@ -10,12 +10,11 @@
 //!
 //! Creates a new user account with `email_verified = false`. Hashes the
 //! password with Argon2id, inserts the user with separate first/last name
-//! fields, generates a 6-digit OTP, stores it in the database, and sends
-//! it via SMTP. If users already exist, an `invite_token` is required —
-//! the first registrant becomes the tenant owner and a tenant record is
-//! created with the provided `company_name`. All subsequent users must be
-//! invited. Returns `SignupResponse` with `user_id` and `email` (no tokens
-//! yet — user must verify email first).
+//! fields, generates a 6-digit OTP, stores it in the database, and enqueues
+//! an email job for async delivery. If users already exist, an `invite_token`
+//! is required — the first registrant becomes the tenant owner and a tenant
+//! record is created with the provided `company_name`. All subsequent users
+//! must be invited. Returns `SignupResponse` immediately (no blocking on SMTP).
 //!
 //! ## verify_otp
 //!
@@ -26,7 +25,7 @@
 //! ## resend_otp
 //!
 //! Invalidates all existing OTPs for a user, generates a new one, and
-//! sends it via SMTP. Requires the user to exist and not yet be verified.
+//! enqueues an email job. Requires the user to exist and not yet be verified.
 //!
 //! ## login
 //!
@@ -39,9 +38,9 @@
 //!
 //! ## forgot_password
 //!
-//! Sends a password reset OTP to the given email. Returns a generic
-//! success message regardless of whether the email exists (prevents
-//! email enumeration). Only works for verified accounts.
+//! Enqueues a password reset OTP email. Returns a generic success message
+//! regardless of whether the email exists (prevents email enumeration).
+//! Only works for verified accounts.
 //!
 //! ## reset_password
 //!
@@ -52,9 +51,8 @@
 //! ## invite_user
 //!
 //! Creates a tenant-level invitation for the given email. Generates a
-//! unique token, stores the invitation, and sends an invite email with
-//! a signup link. Rejects if the email is already registered or has a
-//! pending invitation.
+//! unique token, stores the invitation, and enqueues an invite email.
+//! Rejects if the email is already registered or has a pending invitation.
 //!
 //! ## validate_invite
 //!
@@ -90,7 +88,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use kahf_email::{EmailSender, INVITE_TTL_DAYS, OTP_TTL_MINUTES, generate_otp};
+use kahf_email::{INVITE_TTL_DAYS, OTP_TTL_MINUTES, generate_otp};
+use kahf_worker::JobProducer;
 use crate::jwt::{JwtConfig, issue_access_token, issue_refresh_token, verify_token};
 use crate::password::{hash_password, verify_password};
 
@@ -139,7 +138,7 @@ pub async fn registration_open(pool: &PgPool) -> eyre::Result<bool> {
 
 pub async fn signup(
     pool: &PgPool,
-    mailer: &dyn EmailSender,
+    jobs: &JobProducer,
     email: &str,
     password: &str,
     first_name: &str,
@@ -184,7 +183,10 @@ pub async fn signup(
     let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
     kahf_db::otp_repo::create_otp(pool, user.id, &otp_code, expires_at, PURPOSE_EMAIL_VERIFICATION).await?;
 
-    mailer.send_otp(email, &otp_code)?;
+    jobs.enqueue(kahf_worker::jobs::SendOtpEmail {
+        email: email.to_owned(),
+        otp_code,
+    }).await?;
 
     Ok(SignupResponse {
         user_id: user.id,
@@ -229,7 +231,7 @@ pub async fn verify_otp(
 
 pub async fn resend_otp(
     pool: &PgPool,
-    mailer: &dyn EmailSender,
+    jobs: &JobProducer,
     email: &str,
 ) -> eyre::Result<SignupResponse> {
     let user = kahf_db::user_repo::get_user_by_email(pool, email)
@@ -246,7 +248,10 @@ pub async fn resend_otp(
     let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
     kahf_db::otp_repo::create_otp(pool, user.id, &otp_code, expires_at, PURPOSE_EMAIL_VERIFICATION).await?;
 
-    mailer.send_otp(email, &otp_code)?;
+    jobs.enqueue(kahf_worker::jobs::SendOtpEmail {
+        email: email.to_owned(),
+        otp_code,
+    }).await?;
 
     Ok(SignupResponse {
         user_id: user.id,
@@ -305,7 +310,7 @@ pub async fn refresh(
 
 pub async fn forgot_password(
     pool: &PgPool,
-    mailer: &dyn EmailSender,
+    jobs: &JobProducer,
     email: &str,
 ) -> eyre::Result<MessageResponse> {
     let user = kahf_db::user_repo::get_user_by_email(pool, email).await?;
@@ -318,7 +323,10 @@ pub async fn forgot_password(
             let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
             kahf_db::otp_repo::create_otp(pool, user.id, &otp_code, expires_at, PURPOSE_PASSWORD_RESET).await?;
 
-            mailer.send_password_reset_otp(email, &otp_code)?;
+            jobs.enqueue(kahf_worker::jobs::SendPasswordResetEmail {
+                email: email.to_owned(),
+                otp_code,
+            }).await?;
         }
     }
 
@@ -354,7 +362,7 @@ pub async fn reset_password(
 
 pub async fn invite_user(
     pool: &PgPool,
-    mailer: &dyn EmailSender,
+    jobs: &JobProducer,
     inviter_user_id: Uuid,
     invitee_email: &str,
 ) -> eyre::Result<InviteResponse> {
@@ -384,7 +392,11 @@ pub async fn invite_user(
     )
     .await?;
 
-    mailer.send_invite(invitee_email, &inviter.full_name(), &token)?;
+    jobs.enqueue(kahf_worker::jobs::SendInviteEmail {
+        email: invitee_email.to_owned(),
+        inviter_name: inviter.full_name(),
+        invite_token: token,
+    }).await?;
 
     Ok(InviteResponse {
         invitation_id: invitation.id,

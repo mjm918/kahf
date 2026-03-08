@@ -3,10 +3,10 @@
 //! ## Config
 //!
 //! Holds all runtime configuration: `database_url`, `jwt_secret`,
-//! `smtp` (email settings), `host`, `port`. Loaded via
+//! `smtp` (email settings), `redis_url`, `host`, `port`. Loaded via
 //! `Config::from_env()` which reads `DATABASE_URL`, `JWT_SECRET`,
-//! SMTP env vars, `HOST` (default `0.0.0.0`), and `PORT` (default
-//! `3000`).
+//! `REDIS_URL` (default `redis://localhost:6379`), SMTP env vars,
+//! `HOST` (default `0.0.0.0`), and `PORT` (default `3000`).
 
 use eyre::WrapErr;
 use kahf_email::SmtpConfig;
@@ -14,6 +14,7 @@ use kahf_email::SmtpConfig;
 pub struct Config {
     pub database_url: String,
     pub jwt_secret: String,
+    pub redis_url: String,
     pub smtp: SmtpConfig,
     pub host: String,
     pub port: u16,
@@ -27,6 +28,9 @@ impl Config {
         let jwt_secret = std::env::var("JWT_SECRET")
             .wrap_err("JWT_SECRET must be set")?;
 
+        let redis_url = std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".into());
+
         let smtp = SmtpConfig::from_env()?;
 
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
@@ -39,6 +43,7 @@ impl Config {
         Ok(Self {
             database_url,
             jwt_secret,
+            redis_url,
             smtp,
             host,
             port,

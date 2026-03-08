@@ -17,7 +17,13 @@
       "Bash(chmod +x:*)",
       "Bash(.claude/hooks/check-no-inline-comments.sh:*)",
       "Bash(npx ng:*)",
-      "mcp__playwright__browser_type"
+      "mcp__playwright__browser_type",
+      "WebSearch",
+      "Bash(docker:*)",
+      "mcp__grep__searchGitHub",
+      "WebFetch(domain:docs.rs)",
+      "Bash(redis-cli KEYS:*)",
+      "Bash(grep:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

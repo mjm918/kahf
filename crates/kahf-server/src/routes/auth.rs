@@ -114,7 +114,7 @@ async fn signup(
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
     let resp = kahf_auth::service::signup(
         state.pool(),
-        &*state.mailer,
+        &state.jobs,
         &body.email,
         &body.password,
         &body.first_name,
@@ -159,7 +159,7 @@ async fn resend_otp(
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
     let resp = kahf_auth::service::resend_otp(
         state.pool(),
-        &*state.mailer,
+        &state.jobs,
         &body.email,
     )
     .await?;
@@ -222,7 +222,7 @@ async fn forgot_password(
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
     let resp = kahf_auth::service::forgot_password(
         state.pool(),
-        &*state.mailer,
+        &state.jobs,
         &body.email,
     )
     .await?;
@@ -271,7 +271,7 @@ async fn invite_user(
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
     let resp = kahf_auth::service::invite_user(
         state.pool(),
-        &*state.mailer,
+        &state.jobs,
         auth_user.claims.sub,
         &body.email,
     )
