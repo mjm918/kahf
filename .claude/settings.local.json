@@ -23,7 +23,10 @@
       "mcp__grep__searchGitHub",
       "WebFetch(domain:docs.rs)",
       "Bash(redis-cli KEYS:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "mcp__syncfusion-angular-assistant__sf_angular_layout",
+      "mcp__syncfusion-angular-assistant__get_angular_blocks",
+      "mcp__playwright__browser_click"
     ]
   },
   "enableAllProjectMcpServers": true,

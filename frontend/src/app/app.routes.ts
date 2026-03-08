@@ -1,9 +1,11 @@
 /**
  * Top-level application routes.
  *
- * Auth pages (login, signup, verify-otp, forgot-password, reset-password) are protected by the guest
- * guard so authenticated users get redirected to the dashboard. The
- * root path is protected by the auth guard. Lazy-loaded where possible.
+ * Auth pages (login, signup, verify-otp, forgot-password, reset-password)
+ * are protected by the guest guard so authenticated users get redirected
+ * to the dashboard. The root path loads the Shell layout (protected by
+ * the auth guard) which hosts child routes for all application modules.
+ * Lazy-loaded where possible.
  */
 
 import { Routes } from '@angular/router';
@@ -40,6 +42,13 @@ export const routes: Routes = [
     path: '',
     canActivate: [authGuard],
     loadComponent: () => import('./layouts/shell').then(m => m.Shell),
+    children: [
+      { path: '', redirectTo: 'home', pathMatch: 'full' },
+      {
+        path: 'home',
+        loadComponent: () => import('./modules/home/home').then(m => m.Home),
+      },
+    ],
   },
   {
     path: '**',

@@ -1,0 +1,110 @@
+<div class="h-screen flex flex-col overflow-hidden">
+  <ejs-appbar [isSticky]="true" colorMode="Primary" cssClass="e-dense !rounded-none" style="height: 38px; min-height: 38px">
+    <button ejs-button cssClass="e-inherit e-small e-flat" iconCss="e-icons e-menu" (click)="toggleSidebar()"></button>
+    <span class="ml-3 text-xs font-semibold">KahfLane</span>
+    <div class="e-appbar-spacer"></div>
+    <div class="flex items-center rounded-sm px-3 h-6 py-0.5 max-w-md w-full bg-white/15">
+      <span class="e-icons e-search text-white/80" style="font-size: 12px"></span>
+      <input
+        type="text"
+        class="bg-transparent border-none outline-none text-white text-xs ml-2 w-full placeholder-white/70"
+        placeholder="Search resources, services, and docs (G+/)"
+      />
+    </div>
+    <div class="e-appbar-spacer"></div>
+    <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-comment-show" title="Notifications"></button>
+    <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-settings" title="Settings"></button>
+    <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-circle-info" title="Help"></button>
+    <span class="e-appbar-separator ml-3"></span>
+    <button ejs-button cssClass="e-inherit e-small e-flat ml-3" (click)="toggleUserPanel($event)" title="Account">
+      <span class="e-avatar e-avatar-xsmall e-avatar-circle bg-white/30" style="font-size: 10px; width: 24px; height: 24px; line-height: 24px">{{ userInitials() }}</span>
+    </button>
+  </ejs-appbar>
+
+  <div class="flex-1 relative overflow-hidden" id="sidebar-target">
+    <ejs-sidebar
+      #sidebar
+      [width]="'240px'"
+      [type]="'Over'"
+      [isOpen]="false"
+      [target]="'#sidebar-target'"
+      [animate]="true"
+      [showBackdrop]="true"
+      [closeOnDocumentClick]="true"
+    >
+      <div class="h-full flex flex-col overflow-y-auto bg-white">
+        <div class="flex flex-col py-2">
+          @for (item of topNavItems; track item.id) {
+            <button
+              class="flex items-center gap-3 px-4 py-1.5 text-sm text-neutral-700 hover:bg-gray-100 text-left w-full border-none bg-transparent cursor-pointer"
+              (click)="onNavItemClick(item)"
+            >
+              <span class="e-icons e-chevron-right text-azure" style="font-size: 10px"></span>
+              <span class="text-xs">{{ item.name }}</span>
+            </button>
+          }
+        </div>
+        <hr class="my-1 border-gray-200" />
+        <div class="px-4 pt-2 pb-1">
+          <span class="text-[10px] font-semibold tracking-wide text-neutral-500">MODULES</span>
+        </div>
+        <div class="flex flex-col gap-1 mt-3">
+          @for (item of moduleNavItems; track item.id) {
+            <button
+              class="flex items-center gap-3 px-4 py-1.5 text-sm text-neutral-700 hover:bg-gray-100 text-left w-full border-none bg-transparent cursor-pointer"
+              (click)="onNavItemClick(item)"
+            >
+              <span [class]="item.iconCss + ' text-azure'" style="font-size: 14px"></span>
+              <span class="text-xs">{{ item.name }}</span>
+            </button>
+          }
+        </div>
+        <div class="mt-auto mb-1">
+          <hr class="my-1 border-gray-200" />
+          <button
+            class="flex items-center gap-3 px-4 py-1.5 text-sm text-neutral-700 hover:bg-gray-100 text-left w-full border-none bg-transparent cursor-pointer"
+            (click)="onNavItemClick(settingsItem)"
+          >
+            <span class="e-icons e-settings text-azure" style="font-size: 14px"></span>
+            <span class="text-xs">Settings</span>
+          </button>
+        </div>
+      </div>
+    </ejs-sidebar>
+    <main class="h-full overflow-auto">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+
+  @if (userPanelOpen()) {
+    <div class="absolute top-[38px] right-0 z-[1050]">
+      <div class="e-card !rounded-none flex flex-col" style="width: 340px; box-shadow: 0 2px 8px rgba(0,0,0,0.15)">
+        <div class="flex w-full items-center !justify-between px-4 py-1.5 bg-azure">
+          <div class="flex items-center gap-2">
+            <span class="e-icons e-grid-view text-white" style="font-size: 12px"></span>
+            <span class="text-xs font-semibold text-white">KahfLane</span>
+          </div>
+          <button
+            class="text-xs border-none bg-transparent cursor-pointer hover:underline text-white"
+            (click)="auth.logout()"
+          >Sign out</button>
+        </div>
+        <div class="flex items-start gap-3 px-4 py-4">
+          <div
+            class="e-avatar e-avatar-circle flex-shrink-0 flex items-center justify-center bg-neutral-200"
+            style="width: 56px; height: 56px; min-width: 56px"
+          >
+            <span class="e-icons e-people text-neutral-400" style="font-size: 28px"></span>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold truncate text-neutral-700">{{ userDisplayName() }}</div>
+            <div class="text-xs truncate mt-0.5 text-neutral-500">{{ auth.currentUser()?.email }}</div>
+            <div class="flex items-center gap-3 mt-2">
+              <a class="text-xs cursor-pointer hover:underline text-azure">My KahfLane account</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+</div>
