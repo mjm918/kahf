@@ -2,6 +2,9 @@
 //! resend-otp, forgot-password, reset-password, registration-status,
 //! invite, validate-invite, list invitations, cancel invitation.
 //!
+//! All mutating actions emit non-blocking audit log events via the
+//! background job queue for security forensics and compliance.
+//!
 //! ## POST /api/auth/signup
 //!
 //! Creates a new user account and sends a 6-digit OTP to the provided
@@ -71,14 +74,17 @@
 //!
 //! Cancels a pending invitation by ID. Requires authentication.
 
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::Router;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
+use crate::audit::{self, RequestContext};
 use crate::error::AppError;
 
 pub fn router() -> Router<AppState> {
@@ -98,6 +104,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/invitations/{id}", delete(cancel_invitation))
 }
 
+fn ctx(headers: &HeaderMap, ci: &ConnectInfo<SocketAddr>) -> RequestContext {
+    RequestContext::extract(headers, Some(ci))
+}
+
 #[derive(Deserialize)]
 struct SignupRequest {
     email: String,
@@ -110,9 +120,13 @@ struct SignupRequest {
 
 async fn signup(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<SignupRequest>,
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
-    let resp = kahf_auth::service::signup(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::signup(
         state.pool(),
         &state.jobs,
         &body.email,
@@ -122,8 +136,26 @@ async fn signup(
         body.company_name.as_deref(),
         body.invite_token.as_deref(),
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(resp) => {
+            audit::emit(
+                &state.jobs, &ctx, Some(resp.user_id),
+                "auth.signup", Some(format!("user:{}", resp.user_id)),
+                "success", Some(serde_json::json!({"email": body.email})),
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.signup", None,
+                "failure", Some(serde_json::json!({"email": body.email, "error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let resp = result?;
     Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(resp)?)))
 }
 
@@ -135,16 +167,38 @@ struct VerifyOtpRequest {
 
 async fn verify_otp(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<VerifyOtpRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
-    let resp = kahf_auth::service::verify_otp(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::verify_otp(
         state.pool(),
         &state.jwt,
         &body.email,
         &body.code,
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(resp) => {
+            audit::emit(
+                &state.jobs, &ctx, Some(resp.user_id),
+                "auth.verify_otp", Some(format!("user:{}", resp.user_id)),
+                "success", Some(serde_json::json!({"email": body.email})),
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.verify_otp", None,
+                "failure", Some(serde_json::json!({"email": body.email, "error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let resp = result?;
     Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
@@ -155,15 +209,37 @@ struct ResendOtpRequest {
 
 async fn resend_otp(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<ResendOtpRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
-    let resp = kahf_auth::service::resend_otp(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::resend_otp(
         state.pool(),
         &state.jobs,
         &body.email,
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(resp) => {
+            audit::emit(
+                &state.jobs, &ctx, Some(resp.user_id),
+                "auth.resend_otp", Some(format!("user:{}", resp.user_id)),
+                "success", Some(serde_json::json!({"email": body.email})),
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.resend_otp", None,
+                "failure", Some(serde_json::json!({"email": body.email, "error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let resp = result?;
     Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
@@ -175,16 +251,38 @@ struct LoginRequest {
 
 async fn login(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<LoginRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
-    let resp = kahf_auth::service::login(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::login(
         state.pool(),
         &state.jwt,
         &body.email,
         &body.password,
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(resp) => {
+            audit::emit(
+                &state.jobs, &ctx, Some(resp.user_id),
+                "auth.login", Some(format!("user:{}", resp.user_id)),
+                "success", Some(serde_json::json!({"email": body.email})),
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.login_failed", None,
+                "failure", Some(serde_json::json!({"email": body.email, "error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let resp = result?;
     Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
@@ -195,19 +293,53 @@ struct RefreshRequest {
 
 async fn refresh(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<RefreshRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
-    let access_token = kahf_auth::service::refresh(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::refresh(
         state.pool(),
         &state.jwt,
         &body.refresh_token,
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(_) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.refresh", None,
+                "success", None,
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.refresh", None,
+                "failure", Some(serde_json::json!({"error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let access_token = result?;
     Ok(axum::Json(serde_json::json!({ "access_token": access_token })))
 }
 
-async fn logout() -> StatusCode {
+async fn logout(
+    State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> StatusCode {
+    let ctx = ctx(&headers, &ci);
+
+    audit::emit(
+        &state.jobs, &ctx, None,
+        "auth.logout", None,
+        "success", None,
+    ).await;
+
     StatusCode::OK
 }
 
@@ -218,14 +350,24 @@ struct ForgotPasswordRequest {
 
 async fn forgot_password(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<ForgotPasswordRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let ctx = ctx(&headers, &ci);
+
     let resp = kahf_auth::service::forgot_password(
         state.pool(),
         &state.jobs,
         &body.email,
     )
     .await?;
+
+    audit::emit(
+        &state.jobs, &ctx, None,
+        "auth.forgot_password", None,
+        "success", Some(serde_json::json!({"email": body.email})),
+    ).await;
 
     Ok(axum::Json(serde_json::to_value(resp)?))
 }
@@ -239,16 +381,38 @@ struct ResetPasswordRequest {
 
 async fn reset_password(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     axum::Json(body): axum::Json<ResetPasswordRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
-    let resp = kahf_auth::service::reset_password(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::reset_password(
         state.pool(),
         &body.email,
         &body.code,
         &body.new_password,
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(_) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.reset_password", None,
+                "success", Some(serde_json::json!({"email": body.email})),
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, None,
+                "auth.reset_password", None,
+                "failure", Some(serde_json::json!({"email": body.email, "error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let resp = result?;
     Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
@@ -266,17 +430,39 @@ struct InviteRequest {
 
 async fn invite_user(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth_user: kahf_auth::AuthUser,
     axum::Json(body): axum::Json<InviteRequest>,
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
-    let resp = kahf_auth::service::invite_user(
+    let ctx = ctx(&headers, &ci);
+
+    let result = kahf_auth::service::invite_user(
         state.pool(),
         &state.jobs,
         auth_user.claims.sub,
         &body.email,
     )
-    .await?;
+    .await;
 
+    match &result {
+        Ok(resp) => {
+            audit::emit(
+                &state.jobs, &ctx, Some(auth_user.claims.sub),
+                "auth.invite_user", Some(format!("invitation:{}", resp.invitation_id)),
+                "success", Some(serde_json::json!({"invitee_email": body.email})),
+            ).await;
+        }
+        Err(e) => {
+            audit::emit(
+                &state.jobs, &ctx, Some(auth_user.claims.sub),
+                "auth.invite_user", None,
+                "failure", Some(serde_json::json!({"invitee_email": body.email, "error": e.to_string()})),
+            ).await;
+        }
+    }
+
+    let resp = result?;
     Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(resp)?)))
 }
 
@@ -303,9 +489,19 @@ async fn list_invitations(
 
 async fn cancel_invitation(
     State(state): State<AppState>,
-    _auth_user: kahf_auth::AuthUser,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    auth_user: kahf_auth::AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     kahf_db::invite_repo::cancel_invitation(state.pool(), id).await?;
+
+    let ctx = ctx(&headers, &ci);
+    audit::emit(
+        &state.jobs, &ctx, Some(auth_user.claims.sub),
+        "auth.cancel_invitation", Some(format!("invitation:{id}")),
+        "success", None,
+    ).await;
+
     Ok(StatusCode::NO_CONTENT)
 }

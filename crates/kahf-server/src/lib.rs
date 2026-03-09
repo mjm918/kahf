@@ -10,8 +10,14 @@
 //! Constructs the full axum `Router` with all middleware layers
 //! (CORS, tracing, JWT extension) and route modules attached.
 //! Used by both `main.rs` and integration tests.
+//!
+//! ## audit
+//!
+//! Helpers for enqueuing non-blocking audit log events from route
+//! handlers.
 
 pub mod app_state;
+pub mod audit;
 pub mod config;
 pub mod error;
 pub mod routes;

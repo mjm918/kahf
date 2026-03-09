@@ -2,7 +2,7 @@
 //!
 //! All entity types (task, contact, document, etc.) share the same
 //! REST interface. The entity type is a path parameter parsed from
-//! the URL.
+//! the URL. Mutating operations emit audit log events.
 //!
 //! ## GET /api/entities/:type
 //!
@@ -37,8 +37,10 @@
 //! Returns the entity's event history up to a given timestamp.
 //! Query parameter: `ts` (RFC 3339 timestamp).
 
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::get;
 use axum::Router;
 use chrono::{DateTime, Utc};
@@ -50,6 +52,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
+use crate::audit::{self, RequestContext};
 use crate::error::AppError;
 
 pub fn router() -> Router<AppState> {
@@ -99,6 +102,8 @@ async fn get_entity(
 
 async fn create_entity(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     Path(entity_type): Path<String>,
     axum::Json(data): axum::Json<Value>,
@@ -141,17 +146,26 @@ async fn create_entity(
     state.hub.broadcast(
         ws_id.0,
         kahf_realtime::WsMessage::EntityCreated {
-            entity_type: et_str,
+            entity_type: et_str.clone(),
             id: entity_id.0,
             data: entity.data.clone(),
         },
     );
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "entity.create", Some(format!("{et_str}:{}", entity_id.0)),
+        "success", Some(serde_json::json!({"workspace_id": ws_id.0})),
+    ).await;
 
     Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(entity)?)))
 }
 
 async fn update_entity(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     Path((_entity_type, id)): Path<(String, Uuid)>,
     axum::Json(patch_data): axum::Json<Value>,
@@ -166,6 +180,8 @@ async fn update_entity(
         .get(entity_id)
         .await?
         .ok_or_else(|| kahf_core::KahfError::not_found("entity", id.to_string()))?;
+
+    let et_str = entity.entity_type.to_string();
 
     let event = Event {
         id: EntityId::new(),
@@ -188,17 +204,26 @@ async fn update_entity(
     state.hub.broadcast(
         ws_id.0,
         kahf_realtime::WsMessage::EntityUpdated {
-            entity_type: entity.entity_type.to_string(),
+            entity_type: et_str.clone(),
             id: entity_id.0,
             patch: patch_data,
         },
     );
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "entity.update", Some(format!("{et_str}:{id}")),
+        "success", Some(serde_json::json!({"workspace_id": ws_id.0})),
+    ).await;
 
     Ok(axum::Json(serde_json::to_value(entity)?))
 }
 
 async fn delete_entity(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     Path((entity_type, id)): Path<(String, Uuid)>,
 ) -> Result<StatusCode, AppError> {
@@ -207,6 +232,7 @@ async fn delete_entity(
     let user_id = UserId::from_uuid(auth.claims.sub);
     let entity_id = EntityId::from_uuid(id);
     let et = parse_entity_type(&entity_type);
+    let et_str = et.to_string();
 
     let event = Event {
         id: EntityId::new(),
@@ -226,10 +252,17 @@ async fn delete_entity(
     state.hub.broadcast(
         ws_id.0,
         kahf_realtime::WsMessage::EntityDeleted {
-            entity_type: et.to_string(),
+            entity_type: et_str.clone(),
             id,
         },
     );
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "entity.delete", Some(format!("{et_str}:{id}")),
+        "success", Some(serde_json::json!({"workspace_id": ws_id.0})),
+    ).await;
 
     Ok(StatusCode::NO_CONTENT)
 }

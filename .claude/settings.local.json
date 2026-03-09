@@ -26,7 +26,10 @@
       "Bash(grep:*)",
       "mcp__syncfusion-angular-assistant__sf_angular_layout",
       "mcp__syncfusion-angular-assistant__get_angular_blocks",
-      "mcp__playwright__browser_click"
+      "mcp__playwright__browser_click",
+      "mcp__dbhub__execute_sql",
+      "Bash(psql:*)",
+      "Bash(cargo build:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

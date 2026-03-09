@@ -8,5 +8,11 @@
 //!
 //! Handlers for `SendOtpEmail`, `SendPasswordResetEmail`, and
 //! `SendInviteEmail` jobs using `kahf_email::EmailSender`.
+//!
+//! ## audit
+//!
+//! Handler for `AuditLog` jobs — inserts audit events into the
+//! `audit_log` TimescaleDB hypertable.
 
+pub mod audit;
 pub mod email;

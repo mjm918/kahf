@@ -15,6 +15,7 @@
 //! - `PORT` — Bind port (default `3000`)
 //! - `RUST_LOG` — Tracing filter (default `kahf=debug,tower_http=debug`)
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tracing_subscriber::EnvFilter;
@@ -72,7 +73,7 @@ async fn main() -> eyre::Result<()> {
     });
 
     tokio::select! {
-        res = axum::serve(listener, app) => {
+        res = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => {
             res?;
         }
         _ = worker_handle => {

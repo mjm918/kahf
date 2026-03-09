@@ -29,7 +29,7 @@
 //!
 //! ## jobs
 //!
-//! Job struct definitions organized by domain (email, etc).
+//! Job struct definitions organized by domain (email, audit, etc).
 //!
 //! ## handlers
 //!
@@ -37,7 +37,7 @@
 //!
 //! ## audit
 //!
-//! `JobAuditor` for recording state transitions to TimescaleDB.
+//! `JobAuditor` for recording job state transitions to TimescaleDB.
 
 pub mod audit;
 pub mod handlers;
@@ -122,11 +122,12 @@ pub async fn start_workers(
         .await
         .map_err(|e| eyre::eyre!("failed to connect to Redis for workers: {}", e))?;
 
-    let auditor = JobAuditor::new(pool);
+    let auditor = JobAuditor::new(pool.clone());
 
     let otp_config = apalis_redis::Config::default().set_namespace("kahflane:SendOtpEmail");
     let reset_config = apalis_redis::Config::default().set_namespace("kahflane:SendPasswordResetEmail");
     let invite_config = apalis_redis::Config::default().set_namespace("kahflane:SendInviteEmail");
+    let audit_config = apalis_redis::Config::default().set_namespace("kahflane:AuditLog");
 
     let otp_worker = WorkerBuilder::new("email-otp")
         .data(mailer.clone())
@@ -146,13 +147,20 @@ pub async fn start_workers(
         .data(mailer)
         .data(auditor)
         .enable_tracing()
-        .backend(RedisStorage::<jobs::SendInviteEmail>::new_with_config(conn, invite_config))
+        .backend(RedisStorage::<jobs::SendInviteEmail>::new_with_config(conn.clone(), invite_config))
         .build_fn(handlers::email::handle_send_invite);
+
+    let audit_worker = WorkerBuilder::new("audit-log")
+        .data(pool)
+        .enable_tracing()
+        .backend(RedisStorage::<jobs::AuditLog>::new_with_config(conn, audit_config))
+        .build_fn(handlers::audit::handle_audit_log);
 
     let monitor = Monitor::new()
         .register(otp_worker)
         .register(reset_worker)
-        .register(invite_worker);
+        .register(invite_worker)
+        .register(audit_worker);
 
     Ok(monitor)
 }

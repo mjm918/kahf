@@ -8,7 +8,13 @@
 //!
 //! Email delivery jobs: `SendOtpEmail`, `SendPasswordResetEmail`,
 //! `SendInviteEmail`.
+//!
+//! ## audit
+//!
+//! `AuditLog` — non-blocking security audit trail event.
 
+pub mod audit;
 pub mod email;
 
+pub use audit::AuditLog;
 pub use email::{SendInviteEmail, SendOtpEmail, SendPasswordResetEmail};

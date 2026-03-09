@@ -9,14 +9,19 @@
 //!
 //! Updates the authenticated user's `first_name`, `last_name`, and/or
 //! `avatar_url`. Body: `{ first_name?, last_name?, avatar_url? }`.
+//! Emits an audit event on profile update.
 
-use axum::extract::State;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, State};
+use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::Router;
 use kahf_auth::AuthUser;
 use serde::Deserialize;
 
 use crate::app_state::AppState;
+use crate::audit::{self, RequestContext};
 use crate::error::AppError;
 
 pub fn router() -> Router<AppState> {
@@ -51,6 +56,8 @@ struct UpdateMeRequest {
 
 async fn update_me(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     axum::Json(body): axum::Json<UpdateMeRequest>,
 ) -> Result<axum::Json<serde_json::Value>, AppError> {
@@ -63,6 +70,16 @@ async fn update_me(
     let avatar_url = body.avatar_url.as_deref().or(user.avatar_url.as_deref());
 
     kahf_db::user_repo::update_user(state.pool(), auth.claims.sub, first_name, last_name, avatar_url).await?;
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "user.profile_update", Some(format!("user:{}", auth.claims.sub)),
+        "success", Some(serde_json::json!({
+            "first_name": first_name,
+            "last_name": last_name,
+        })),
+    ).await;
 
     Ok(axum::Json(serde_json::json!({
         "id": user.id,

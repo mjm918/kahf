@@ -1,5 +1,7 @@
 //! Workspace management endpoints.
 //!
+//! All mutating operations emit audit log events for compliance tracking.
+//!
 //! ## POST /api/workspaces
 //!
 //! Creates a new workspace. The authenticated user becomes the owner.
@@ -23,8 +25,10 @@
 //! Removes a member from a workspace and revokes all RBAC roles.
 //! Requires `member:delete` permission.
 
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::Router;
 use kahf_auth::AuthUser;
@@ -32,6 +36,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
+use crate::audit::{self, RequestContext};
 use crate::error::AppError;
 
 pub fn router() -> Router<AppState> {
@@ -50,6 +55,8 @@ struct CreateWorkspaceRequest {
 
 async fn create_workspace(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     axum::Json(body): axum::Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
@@ -63,6 +70,13 @@ async fn create_workspace(
 
     let ws_id = ws.id;
     kahf_rbac::assign_role(&state.rbac, auth.claims.sub, "owner", ws_id).await?;
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "workspace.create", Some(format!("workspace:{ws_id}")),
+        "success", Some(serde_json::json!({"name": body.name, "slug": body.slug})),
+    ).await;
 
     Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(ws)?)))
 }
@@ -100,6 +114,8 @@ struct AddMemberRequest {
 
 async fn add_member(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     Path(id): Path<Uuid>,
     axum::Json(body): axum::Json<AddMemberRequest>,
@@ -116,11 +132,23 @@ async fn add_member(
 
     kahf_rbac::assign_role(&state.rbac, body.user_id, &body.role, id).await?;
 
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "workspace.add_member", Some(format!("workspace:{id}")),
+        "success", Some(serde_json::json!({
+            "member_id": body.user_id,
+            "role": body.role,
+        })),
+    ).await;
+
     Ok(StatusCode::CREATED)
 }
 
 async fn remove_member(
     State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: AuthUser,
     Path((id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AppError> {
@@ -128,6 +156,13 @@ async fn remove_member(
 
     kahf_db::workspace_repo::remove_member(state.pool(), id, user_id).await?;
     kahf_rbac::remove_all_roles(&state.rbac, user_id, id).await?;
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "workspace.remove_member", Some(format!("workspace:{id}")),
+        "success", Some(serde_json::json!({"removed_user_id": user_id})),
+    ).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
