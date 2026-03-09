@@ -58,11 +58,20 @@
 //! invalidates remaining reset OTPs. Revokes all refresh tokens so
 //! existing sessions are invalidated.
 //!
+//! ## change_password
+//!
+//! Changes the authenticated user's password. Requires the current password
+//! for verification. Enforces password reuse prevention (6 months). Hashes
+//! the new password with Argon2id, saves the old hash to password history,
+//! and revokes all refresh tokens so existing sessions are invalidated.
+//!
 //! ## invite_user
 //!
 //! Creates a tenant-level invitation for the given email. Generates a
 //! unique token, stores the invitation, and enqueues an invite email.
-//! Rejects if the email is already registered or has a pending invitation.
+//! Rejects if the email is already registered. If a previous invitation
+//! exists for the same email (expired or pending), it is cancelled and
+//! replaced with a fresh one (re-invite flow).
 //!
 //! ## validate_invite
 //!
@@ -131,9 +140,10 @@ pub struct MessageResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InviteResponse {
-    pub invitation_id: Uuid,
+    pub invitation_id: Option<Uuid>,
     pub email: String,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub added_directly: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +205,8 @@ pub async fn signup(
         ));
     }
 
+    let mut invite_workspace_id: Option<Uuid> = None;
+
     if let Some(token) = invite_token {
         let invitation = kahf_db::invite_repo::get_invitation_by_token(pool, token)
             .await?
@@ -204,12 +216,17 @@ pub async fn signup(
             return Err(kahf_core::KahfError::validation("email does not match invitation"));
         }
 
+        invite_workspace_id = invitation.workspace_id;
         kahf_db::invite_repo::mark_invitation_accepted(pool, invitation.id).await?;
     }
 
     let password_hash = hash_password(password)?;
     let user = kahf_db::user_repo::create_user(pool, email, &password_hash, first_name, last_name).await?;
     kahf_db::password_history_repo::save_password(pool, user.id, &password_hash).await?;
+
+    if let Some(ws_id) = invite_workspace_id {
+        kahf_db::workspace_repo::add_member(pool, ws_id, user.id, "member").await?;
+    }
 
     if let Some(cn) = company_name {
         kahf_db::tenant_repo::create_tenant(pool, cn, user.id).await?;
@@ -404,16 +421,30 @@ pub async fn invite_user(
     pool: &PgPool,
     jobs: &JobProducer,
     inviter_user_id: Uuid,
+    workspace_id: Uuid,
     invitee_email: &str,
 ) -> eyre::Result<InviteResponse> {
     let existing = kahf_db::user_repo::get_user_by_email(pool, invitee_email).await?;
-    if existing.is_some() {
-        return Err(kahf_core::KahfError::conflict("user with this email already exists"));
+
+    if let Some(user) = existing {
+        let members = kahf_db::workspace_repo::list_members(pool, workspace_id).await?;
+        let already_member = members.iter().any(|m| m.user_id == user.id);
+        if already_member {
+            return Err(kahf_core::KahfError::conflict("user is already a member of this workspace"));
+        }
+
+        kahf_db::workspace_repo::add_member(pool, workspace_id, user.id, "member").await?;
+
+        return Ok(InviteResponse {
+            invitation_id: None,
+            email: invitee_email.to_owned(),
+            expires_at: None,
+            added_directly: true,
+        });
     }
 
-    let pending = kahf_db::invite_repo::get_pending_by_email(pool, invitee_email).await?;
-    if pending.is_some() {
-        return Err(kahf_core::KahfError::conflict("a pending invitation already exists for this email"));
+    if let Some(old) = kahf_db::invite_repo::get_pending_by_email(pool, workspace_id, invitee_email).await? {
+        kahf_db::invite_repo::cancel_invitation(pool, old.id).await?;
     }
 
     let inviter = kahf_db::user_repo::get_user_by_id(pool, inviter_user_id)
@@ -425,6 +456,7 @@ pub async fn invite_user(
 
     let invitation = kahf_db::invite_repo::create_invitation(
         pool,
+        workspace_id,
         invitee_email,
         inviter_user_id,
         &token,
@@ -439,9 +471,44 @@ pub async fn invite_user(
     }).await?;
 
     Ok(InviteResponse {
-        invitation_id: invitation.id,
+        invitation_id: Some(invitation.id),
         email: invitation.email,
-        expires_at: invitation.expires_at,
+        expires_at: Some(invitation.expires_at),
+        added_directly: false,
+    })
+}
+
+pub async fn change_password(
+    pool: &PgPool,
+    user_id: Uuid,
+    current_password: &str,
+    new_password: &str,
+) -> eyre::Result<MessageResponse> {
+    let user = kahf_db::user_repo::get_user_by_id(pool, user_id)
+        .await?
+        .ok_or_else(|| kahf_core::KahfError::not_found("user", user_id.to_string()))?;
+
+    verify_password(current_password, &user.password)?;
+
+    let recent_hashes = kahf_db::password_history_repo::get_recent_hashes(pool, user_id, PASSWORD_REUSE_MONTHS).await?;
+
+    let current_is_reused = verify_password(new_password, &user.password).is_ok();
+    let history_is_reused = recent_hashes.iter().any(|h| verify_password(new_password, h).is_ok());
+
+    if current_is_reused || history_is_reused {
+        return Err(kahf_core::KahfError::validation(
+            "this password was used recently — please choose a different password",
+        ));
+    }
+
+    let password_hash = hash_password(new_password)?;
+    kahf_db::password_history_repo::save_password(pool, user_id, &user.password).await?;
+    kahf_db::user_repo::update_password(pool, user_id, &password_hash).await?;
+
+    kahf_db::refresh_token_repo::revoke_all_user_tokens(pool, user_id).await?;
+
+    Ok(MessageResponse {
+        message: "password changed successfully".into(),
     })
 }
 

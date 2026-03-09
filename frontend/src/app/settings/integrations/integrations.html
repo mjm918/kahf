@@ -1,0 +1,82 @@
+<div class="p-6 max-w-lg">
+  <h2 class="text-base font-semibold mt-0 mb-4" style="color: #323130">Integrations</h2>
+
+  @if (error()) {
+    <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ error() }}
+    </ejs-message>
+  }
+
+  <div class="rounded px-4 py-3" style="border: 1px solid #EDEBE9">
+    <div class="flex items-center gap-2 mb-2">
+      <div
+        class="flex items-center justify-center rounded-sm shrink-0"
+        style="width: 24px; height: 24px; background: #0088CC; color: #fff; font-size: 11px; font-weight: 600"
+      >T</div>
+      <span class="text-sm font-semibold" style="color: #323130">Telegram</span>
+    </div>
+
+    @if (telegramStatus()?.linked) {
+      <div class="flex items-center gap-2 mb-3">
+        <span class="e-icons e-check-box" style="font-size: 14px; color: #107C10"></span>
+        <span class="text-xs" style="color: #323130">
+          Connected
+          @if (telegramStatus()?.telegram_username) {
+            <span style="color: #605E5C"> &mdash; &#64;{{ telegramStatus()?.telegram_username }}</span>
+          }
+        </span>
+      </div>
+      <button
+        ejs-button
+        cssClass="e-small e-outline e-danger"
+        [content]="unlinkLoading() ? 'Unlinking...' : 'Unlink'"
+        [disabled]="unlinkLoading()"
+        (click)="confirmUnlink()"
+      ></button>
+    } @else if (linkCode()) {
+      <div class="flex flex-col gap-2">
+        <p class="text-xs m-0" style="color: #605E5C">
+          Send the following command to <strong>&#64;{{ linkCode()?.bot_username }}</strong> on Telegram:
+        </p>
+        <div class="flex items-center gap-2 px-3 py-2 rounded" style="background: #F3F2F1">
+          <code class="text-sm font-mono font-semibold" style="color: #0078D4">/link {{ linkCode()?.code }}</code>
+        </div>
+        <p class="text-[11px] m-0" style="color: #A19F9D">
+          Code expires in {{ linkCode()?.expires_in_minutes }} minutes.
+        </p>
+      </div>
+    } @else {
+      <p class="text-xs m-0 mb-2" style="color: #605E5C">
+        Connect your Telegram account to receive notifications via the KahfLane bot.
+      </p>
+      <button
+        ejs-button
+        cssClass="e-small"
+        [isPrimary]="true"
+        [content]="loading() ? 'Generating...' : 'Link Telegram'"
+        [disabled]="loading()"
+        (click)="generateCode()"
+      ></button>
+    }
+  </div>
+
+  <ejs-dialog
+    [visible]="showUnlinkDialog()"
+    [isModal]="true"
+    [showCloseIcon]="true"
+    header="Unlink Telegram"
+    width="360px"
+    cssClass="e-small"
+    (close)="showUnlinkDialog.set(false)"
+  >
+    <ng-template #content>
+      <p class="text-xs m-0" style="color: #605E5C">
+        Are you sure you want to unlink your Telegram account? You will no longer receive notifications via Telegram.
+      </p>
+    </ng-template>
+    <ng-template #footerTemplate>
+      <button ejs-button cssClass="e-small e-flat" content="Cancel" (click)="showUnlinkDialog.set(false)"></button>
+      <button ejs-button cssClass="e-small e-danger" content="Unlink" (click)="onUnlink()"></button>
+    </ng-template>
+  </ejs-dialog>
+</div>

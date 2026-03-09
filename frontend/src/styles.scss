@@ -11,3 +11,13 @@ html, body {
   background-color: var(--color-sf-content-bg-color);
   color: var(--color-sf-content-text-color);
 }
+
+.settings-nav-active {
+  background: #EBF3FC;
+  color: #0078D4 !important;
+  font-weight: 600;
+}
+
+.e-card {
+  box-shadow: none !important;
+}

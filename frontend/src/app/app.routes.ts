@@ -6,7 +6,9 @@
  * to the dashboard. The onboarding route is protected by the auth guard
  * and shown to users who have no workspaces yet. The root path loads
  * the Shell layout (protected by auth + onboarding guards) which hosts
- * child routes for all application modules. Lazy-loaded where possible.
+ * child routes for all application modules. Settings routes are nested
+ * under the Shell with the Settings layout providing its own left nav
+ * sidebar and child router outlet. Lazy-loaded where possible.
  */
 
 import { Routes } from '@angular/router';
@@ -54,6 +56,37 @@ export const routes: Routes = [
       {
         path: 'home',
         loadComponent: () => import('./modules/home/home').then(m => m.Home),
+      },
+      {
+        path: 'settings',
+        loadComponent: () => import('./settings/settings').then(m => m.Settings),
+        children: [
+          { path: '', redirectTo: 'account', pathMatch: 'full' },
+          {
+            path: 'account',
+            loadComponent: () => import('./settings/account/account').then(m => m.AccountSettings),
+          },
+          {
+            path: 'password',
+            loadComponent: () => import('./settings/password/password').then(m => m.PasswordSettings),
+          },
+          {
+            path: 'integrations',
+            loadComponent: () => import('./settings/integrations/integrations').then(m => m.IntegrationSettings),
+          },
+          {
+            path: 'notifications',
+            loadComponent: () => import('./settings/notifications/notifications').then(m => m.NotificationSettings),
+          },
+          {
+            path: 'workspace',
+            loadComponent: () => import('./settings/workspace-general/workspace-general').then(m => m.WorkspaceGeneralSettings),
+          },
+          {
+            path: 'members',
+            loadComponent: () => import('./settings/members/members').then(m => m.MemberSettings),
+          },
+        ],
       },
     ],
   },

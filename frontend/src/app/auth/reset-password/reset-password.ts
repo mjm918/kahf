@@ -14,28 +14,15 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TextBoxModule, TextBoxComponent, OtpInputModule } from '@syncfusion/ej2-angular-inputs';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
-import { ProgressBarModule } from '@syncfusion/ej2-angular-progressbar';
 import { MessageModule } from '@syncfusion/ej2-angular-notifications';
 import { AuthService } from '../../core/services/auth.service';
 import { AuthLayout } from '../auth-layout/auth-layout';
-
-interface PasswordCheck {
-  label: string;
-  test: (pw: string) => boolean;
-}
-
-const PASSWORD_CHECKS: PasswordCheck[] = [
-  { label: '8+ characters', test: (pw) => pw.length >= 8 },
-  { label: 'Uppercase letter', test: (pw) => /[A-Z]/.test(pw) },
-  { label: 'Lowercase letter', test: (pw) => /[a-z]/.test(pw) },
-  { label: 'Number', test: (pw) => /\d/.test(pw) },
-  { label: 'Special character', test: (pw) => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pw) },
-];
+import { PasswordStrengthMeter } from '../../shared/components/password-strength/password-strength';
 
 @Component({
   selector: 'app-reset-password',
   standalone: true,
-  imports: [FormsModule, TextBoxModule, OtpInputModule, ButtonModule, ProgressBarModule, MessageModule, RouterLink, AuthLayout],
+  imports: [FormsModule, TextBoxModule, OtpInputModule, ButtonModule, MessageModule, RouterLink, AuthLayout, PasswordStrengthMeter],
   templateUrl: './reset-password.html',
 })
 export class ResetPassword implements AfterViewInit {
@@ -49,10 +36,6 @@ export class ResetPassword implements AfterViewInit {
   success = signal('');
   loading = signal(false);
   passwordStrength = signal(0);
-  passwordLabel = signal('');
-  passwordColor = signal('#D2D0CE');
-  checks = PASSWORD_CHECKS;
-  checkResults = signal<boolean[]>([false, false, false, false, false]);
   confirmMismatch = signal(false);
 
   private auth = inject(AuthService);
@@ -91,32 +74,8 @@ export class ResetPassword implements AfterViewInit {
     this.code = event.value || '';
   }
 
-  onPasswordInput(): void {
-    this.onConfirmInput();
-    const pw = this.newPassword;
-    const results = this.checks.map((c) => c.test(pw));
-    this.checkResults.set(results);
-
-    const passed = results.filter(Boolean).length;
-    const percent = (passed / this.checks.length) * 100;
-    this.passwordStrength.set(percent);
-
-    if (pw.length === 0) {
-      this.passwordLabel.set('');
-      this.passwordColor.set('#D2D0CE');
-    } else if (percent <= 40) {
-      this.passwordLabel.set('Weak');
-      this.passwordColor.set('#D13438');
-    } else if (percent <= 60) {
-      this.passwordLabel.set('Fair');
-      this.passwordColor.set('#CA5010');
-    } else if (percent <= 80) {
-      this.passwordLabel.set('Good');
-      this.passwordColor.set('#0078D4');
-    } else {
-      this.passwordLabel.set('Strong');
-      this.passwordColor.set('#107C10');
-    }
+  onPasswordStrengthChange(strength: number): void {
+    this.passwordStrength.set(strength);
   }
 
   onConfirmInput(): void {

@@ -10,12 +10,24 @@
 //! Updates the authenticated user's `first_name`, `last_name`, and/or
 //! `avatar_url`. Body: `{ first_name?, last_name?, avatar_url? }`.
 //! Emits an audit event on profile update.
+//!
+//! ## PATCH /api/users/me/password
+//!
+//! Changes the authenticated user's password. Requires `current_password`
+//! and `new_password`. Enforces password reuse prevention. Revokes all
+//! sessions on success.
+//!
+//! ## DELETE /api/users/me
+//!
+//! Deletes the authenticated user's account. Requires `password` for
+//! confirmation. Removes the user and all associated data. Emits an
+//! audit event.
 
 use std::net::SocketAddr;
 
 use axum::extract::{ConnectInfo, State};
-use axum::http::HeaderMap;
-use axum::routing::get;
+use axum::http::{HeaderMap, StatusCode};
+use axum::routing::{get, patch};
 use axum::Router;
 use kahf_auth::AuthUser;
 use serde::Deserialize;
@@ -26,7 +38,8 @@ use crate::error::AppError;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/users/me", get(get_me).patch(update_me))
+        .route("/api/users/me", get(get_me).patch(update_me).delete(delete_me))
+        .route("/api/users/me/password", patch(change_password))
 }
 
 async fn get_me(
@@ -88,4 +101,66 @@ async fn update_me(
         "last_name": last_name,
         "avatar_url": avatar_url,
     })))
+}
+
+#[derive(Deserialize)]
+struct ChangePasswordRequest {
+    current_password: String,
+    new_password: String,
+}
+
+async fn change_password(
+    State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    auth: AuthUser,
+    axum::Json(body): axum::Json<ChangePasswordRequest>,
+) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let result = kahf_auth::service::change_password(
+        state.pool(),
+        auth.claims.sub,
+        &body.current_password,
+        &body.new_password,
+    )
+    .await?;
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "user.password_change", Some(format!("user:{}", auth.claims.sub)),
+        "success", None,
+    ).await;
+
+    Ok(axum::Json(serde_json::json!({ "message": result.message })))
+}
+
+#[derive(Deserialize)]
+struct DeleteMeRequest {
+    password: String,
+}
+
+async fn delete_me(
+    State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    auth: AuthUser,
+    axum::Json(body): axum::Json<DeleteMeRequest>,
+) -> Result<StatusCode, AppError> {
+    let user = kahf_db::user_repo::get_user_by_id(state.pool(), auth.claims.sub)
+        .await?
+        .ok_or_else(|| kahf_core::KahfError::not_found("user", auth.claims.sub.to_string()))?;
+
+    kahf_auth::password::verify_password(&body.password, &user.password)?;
+
+    kahf_db::refresh_token_repo::revoke_all_user_tokens(state.pool(), auth.claims.sub).await?;
+    kahf_db::user_repo::delete_user(state.pool(), auth.claims.sub).await?;
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "user.account_delete", Some(format!("user:{}", auth.claims.sub)),
+        "success", None,
+    ).await;
+
+    Ok(StatusCode::NO_CONTENT)
 }

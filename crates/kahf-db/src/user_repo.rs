@@ -28,6 +28,11 @@
 //!
 //! Sets `email_verified = true` for the given user ID.
 //!
+//! ## delete_user
+//!
+//! Deletes a user by ID. Cascade-deletes related records (workspace
+//! memberships, notification preferences, telegram links, etc).
+//!
 //! ## count_users
 //!
 //! Returns the total number of users in the system. Used to determine
@@ -131,6 +136,15 @@ pub async fn update_password(pool: &PgPool, user_id: Uuid, password_hash: &str) 
 
 pub async fn mark_email_verified(pool: &PgPool, user_id: Uuid) -> eyre::Result<()> {
     sqlx::query("UPDATE users SET email_verified = true WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn delete_user(pool: &PgPool, user_id: Uuid) -> eyre::Result<()> {
+    sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(user_id)
         .execute(pool)
         .await?;

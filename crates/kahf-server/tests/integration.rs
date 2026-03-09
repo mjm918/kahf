@@ -181,9 +181,10 @@ async fn test_signup_creates_user_with_invite() {
 
     create_verified_user(&ctx.pool, &ctx.jwt, &inviter_email, "InvPass1!", "Inviter", "Test").await;
     let inviter = kahf_db::user_repo::get_user_by_email(&ctx.pool, &inviter_email).await.unwrap().unwrap();
+    let ws = kahf_db::workspace_repo::create_workspace(&ctx.pool, "Test WS", "test-ws", "#0078D4", inviter.id).await.unwrap();
 
-    kahf_auth::service::invite_user(&ctx.pool, &ctx.jobs, inviter.id, &signup_email).await.unwrap();
-    let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, &signup_email).await.unwrap().unwrap();
+    kahf_auth::service::invite_user(&ctx.pool, &ctx.jobs, inviter.id, ws.id, &signup_email).await.unwrap();
+    let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, ws.id, &signup_email).await.unwrap().unwrap();
 
     let body = serde_json::json!({
         "email": signup_email,
@@ -221,9 +222,10 @@ async fn test_signup_duplicate_email_fails() {
 
     create_verified_user(&ctx.pool, &ctx.jwt, &inviter_email, "InvPass1!", "Inviter", "Dup").await;
     let inviter = kahf_db::user_repo::get_user_by_email(&ctx.pool, &inviter_email).await.unwrap().unwrap();
+    let ws = kahf_db::workspace_repo::create_workspace(&ctx.pool, "Test WS", "test-ws-dup", "#0078D4", inviter.id).await.unwrap();
 
-    kahf_auth::service::invite_user(&ctx.pool, &ctx.jobs, inviter.id, &email).await.unwrap();
-    let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, &email).await.unwrap().unwrap();
+    kahf_auth::service::invite_user(&ctx.pool, &ctx.jobs, inviter.id, ws.id, &email).await.unwrap();
+    let invitation = kahf_db::invite_repo::get_pending_by_email(&ctx.pool, ws.id, &email).await.unwrap().unwrap();
 
     signup_ctx(&ctx, &email, "StrongPass1!", "User", "One").await;
 

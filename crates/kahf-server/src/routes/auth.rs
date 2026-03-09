@@ -1,6 +1,6 @@
 //! Authentication endpoints: signup, login, refresh, logout, verify-otp,
 //! resend-otp, forgot-password, reset-password, registration-status,
-//! invite, validate-invite, list invitations, cancel invitation.
+//! validate-invite.
 //!
 //! All mutating actions emit non-blocking audit log events via the
 //! background job queue for security forensics and compliance.
@@ -55,33 +55,18 @@
 //! `{ open: true }` if no users exist yet (first user becomes tenant
 //! owner), `{ open: false }` if users already exist (invite-only).
 //!
-//! ## POST /api/auth/invite
-//!
-//! Sends a tenant-level invitation to the given email. Requires
-//! authentication. Body: `{ email }`. Returns `{ invitation_id,
-//! email, expires_at }`.
-//!
 //! ## GET /api/auth/invite/validate/:token
 //!
 //! Validates an invitation token and returns the invitee email.
 //! Public endpoint used by frontend to pre-fill signup.
-//!
-//! ## GET /api/auth/invitations
-//!
-//! Lists all pending invitations. Requires authentication.
-//!
-//! ## DELETE /api/auth/invitations/:id
-//!
-//! Cancels a pending invitation by ID. Requires authentication.
 
 use std::net::SocketAddr;
 
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::app_state::AppState;
 use crate::audit::{self, RequestContext};
@@ -98,10 +83,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/forgot-password", post(forgot_password))
         .route("/api/auth/reset-password", post(reset_password))
         .route("/api/auth/registration-status", get(registration_status))
-        .route("/api/auth/invite", post(invite_user))
         .route("/api/auth/invite/validate/{token}", get(validate_invite))
-        .route("/api/auth/invitations", get(list_invitations))
-        .route("/api/auth/invitations/{id}", delete(cancel_invitation))
 }
 
 fn ctx(headers: &HeaderMap, ci: &ConnectInfo<SocketAddr>) -> RequestContext {
@@ -426,49 +408,6 @@ async fn registration_status(
     Ok(axum::Json(serde_json::json!({ "open": open })))
 }
 
-#[derive(Deserialize)]
-struct InviteRequest {
-    email: String,
-}
-
-async fn invite_user(
-    State(state): State<AppState>,
-    ci: ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    auth_user: kahf_auth::AuthUser,
-    axum::Json(body): axum::Json<InviteRequest>,
-) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
-    let ctx = ctx(&headers, &ci);
-
-    let result = kahf_auth::service::invite_user(
-        state.pool(),
-        &state.jobs,
-        auth_user.claims.sub,
-        &body.email,
-    )
-    .await;
-
-    match &result {
-        Ok(resp) => {
-            audit::emit(
-                &state.jobs, &ctx, Some(auth_user.claims.sub),
-                "auth.invite_user", Some(format!("invitation:{}", resp.invitation_id)),
-                "success", Some(serde_json::json!({"invitee_email": body.email})),
-            ).await;
-        }
-        Err(e) => {
-            audit::emit(
-                &state.jobs, &ctx, Some(auth_user.claims.sub),
-                "auth.invite_user", None,
-                "failure", Some(serde_json::json!({"invitee_email": body.email, "error": e.to_string()})),
-            ).await;
-        }
-    }
-
-    let resp = result?;
-    Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(resp)?)))
-}
-
 async fn validate_invite(
     State(state): State<AppState>,
     Path(token): Path<String>,
@@ -482,29 +421,3 @@ async fn validate_invite(
     Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
-async fn list_invitations(
-    State(state): State<AppState>,
-    _auth_user: kahf_auth::AuthUser,
-) -> Result<axum::Json<serde_json::Value>, AppError> {
-    let invitations = kahf_db::invite_repo::list_pending_invitations(state.pool()).await?;
-    Ok(axum::Json(serde_json::to_value(invitations)?))
-}
-
-async fn cancel_invitation(
-    State(state): State<AppState>,
-    ci: ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    auth_user: kahf_auth::AuthUser,
-    Path(id): Path<Uuid>,
-) -> Result<StatusCode, AppError> {
-    kahf_db::invite_repo::cancel_invitation(state.pool(), id).await?;
-
-    let ctx = ctx(&headers, &ci);
-    audit::emit(
-        &state.jobs, &ctx, Some(auth_user.claims.sub),
-        "auth.cancel_invitation", Some(format!("invitation:{id}")),
-        "success", None,
-    ).await;
-
-    Ok(StatusCode::NO_CONTENT)
-}

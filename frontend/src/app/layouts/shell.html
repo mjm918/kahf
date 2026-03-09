@@ -29,7 +29,7 @@
     </div>
     <div class="e-appbar-spacer"></div>
     <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-comment-show" title="Notifications"></button>
-    <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-settings" title="Settings"></button>
+    <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-settings" title="Settings" (click)="onNavItemClick(settingsItem)"></button>
     <button ejs-button cssClass="e-inherit e-small e-flat ml-3" iconCss="e-icons e-circle-info" title="Help"></button>
     <span class="e-appbar-separator ml-3"></span>
     <button ejs-button cssClass="e-inherit e-small e-flat ml-3" (click)="toggleUserPanel($event)" title="Account">
@@ -197,7 +197,7 @@
             <div class="text-sm font-semibold truncate text-neutral-700">{{ userDisplayName() }}</div>
             <div class="text-xs truncate mt-0.5 text-neutral-500">{{ auth.currentUser()?.email }}</div>
             <div class="flex items-center gap-3 mt-2">
-              <a class="text-xs cursor-pointer hover:underline text-azure">My KahfLane account</a>
+              <a class="text-xs cursor-pointer hover:underline text-azure" (click)="onNavItemClick(settingsItem); userPanelOpen.set(false)">My KahfLane account</a>
             </div>
           </div>
         </div>

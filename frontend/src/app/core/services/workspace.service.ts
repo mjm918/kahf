@@ -1,16 +1,17 @@
 /**
  * Workspace management service.
  *
- * Handles workspace CRUD, listing, switching, and onboarding status
- * checks. Maintains the currently active workspace in a signal and
- * persists the selection in localStorage. Exposes reactive signals
- * for the current workspace and the full workspace list.
+ * Handles workspace CRUD, listing, switching, member management, and
+ * onboarding status checks. Maintains the currently active workspace
+ * in a signal and persists the selection in localStorage. Exposes
+ * reactive signals for the current workspace and the full workspace list.
  *
  * WORKSPACE_COLORS — single source of truth for the curated color
  * palette used for workspace theming across the application (onboarding,
  * workspace switcher, settings).
  * DEFAULT_WORKSPACE_COLOR — default Azure blue used when no color is selected.
  * Workspace — interface for workspace data from the API.
+ * WorkspaceMember — interface for workspace member with user details.
  * WorkspaceService — injectable service managing workspace state.
  */
 
@@ -45,6 +46,32 @@ export interface Workspace {
   color: string;
   created_by: string;
   created_at: string;
+}
+
+export interface WorkspaceMember {
+  user_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  avatar_url: string | null;
+  role: string;
+  joined_at: string;
+}
+
+export interface PendingInvitation {
+  id: string;
+  workspace_id: string;
+  email: string;
+  invited_by: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface InviteResult {
+  invitation_id: string | null;
+  email: string;
+  expires_at: string | null;
+  added_directly: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -89,7 +116,54 @@ export class WorkspaceService {
     return data.needs_onboarding;
   }
 
-  async inviteToWorkspace(email: string): Promise<void> {
-    await api.post('/auth/invite', { email });
+  async updateWorkspace(id: string, body: { name?: string; color?: string }): Promise<Workspace> {
+    const { data } = await api.patch<Workspace>(`/workspaces/${id}`, body);
+    const current = this.workspaces();
+    this.workspaces.set(current.map(w => w.id === id ? data : w));
+    return data;
+  }
+
+  async deleteWorkspace(id: string): Promise<void> {
+    await api.delete(`/workspaces/${id}`);
+    const current = this.workspaces();
+    this.workspaces.set(current.filter(w => w.id !== id));
+    if (this.activeId() === id) {
+      const remaining = this.workspaces();
+      if (remaining.length > 0) {
+        this.switchWorkspace(remaining[0].id);
+      } else {
+        this.activeId.set(null);
+        localStorage.removeItem('active_workspace_id');
+      }
+    }
+  }
+
+  async listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+    const { data } = await api.get<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`);
+    return data;
+  }
+
+  async removeMember(workspaceId: string, userId: string): Promise<void> {
+    await api.delete(`/workspaces/${workspaceId}/members/${userId}`);
+  }
+
+  async updateMemberRole(workspaceId: string, userId: string, role: string): Promise<void> {
+    await api.patch(`/workspaces/${workspaceId}/members/${userId}/role`, { role });
+  }
+
+  async inviteToWorkspace(email: string): Promise<InviteResult> {
+    const wsId = this.current()?.id;
+    if (!wsId) throw new Error('No active workspace');
+    const { data } = await api.post<InviteResult>(`/workspaces/${wsId}/invitations`, { email });
+    return data;
+  }
+
+  async listPendingInvitations(workspaceId: string): Promise<PendingInvitation[]> {
+    const { data } = await api.get<PendingInvitation[]>(`/workspaces/${workspaceId}/invitations`);
+    return data;
+  }
+
+  async cancelInvitation(workspaceId: string, id: string): Promise<void> {
+    await api.delete(`/workspaces/${workspaceId}/invitations/${id}`);
   }
 }

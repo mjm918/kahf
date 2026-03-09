@@ -2,13 +2,13 @@
 //!
 //! ## InvitationRow
 //!
-//! Database row struct: `id`, `email`, `invited_by`, `token`,
-//! `expires_at`, `accepted`, `created_at`.
+//! Database row struct: `id`, `workspace_id`, `email`, `invited_by`,
+//! `token`, `expires_at`, `accepted`, `created_at`.
 //!
 //! ## create_invitation
 //!
-//! Inserts a new tenant-level invitation. Caller provides the invitee
-//! email, inviter user ID, unique token, and expiration time.
+//! Inserts a workspace-scoped invitation. Caller provides the workspace
+//! ID, invitee email, inviter user ID, unique token, and expiration time.
 //!
 //! ## get_invitation_by_token
 //!
@@ -17,16 +17,19 @@
 //!
 //! ## get_pending_by_email
 //!
-//! Fetches a pending invitation for the given email address.
+//! Fetches the most recent non-accepted invitation for the given email
+//! within a workspace. Used by invite_user to cancel old invitations
+//! before creating a fresh one.
 //!
 //! ## mark_invitation_accepted
 //!
 //! Sets `accepted = true` on the given invitation row.
 //!
-//! ## list_pending_invitations
+//! ## list_workspace_invitations
 //!
-//! Returns all non-expired, non-accepted invitations ordered by
-//! creation date descending.
+//! Returns all non-accepted invitations for a workspace ordered by
+//! creation date descending. Includes expired invitations so admins
+//! can see and re-invite.
 //!
 //! ## cancel_invitation
 //!
@@ -40,6 +43,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct InvitationRow {
     pub id: Uuid,
+    pub workspace_id: Option<Uuid>,
     pub email: String,
     pub invited_by: Uuid,
     pub token: String,
@@ -50,16 +54,18 @@ pub struct InvitationRow {
 
 pub async fn create_invitation(
     pool: &PgPool,
+    workspace_id: Uuid,
     email: &str,
     invited_by: Uuid,
     token: &str,
     expires_at: DateTime<Utc>,
 ) -> eyre::Result<InvitationRow> {
     let row = sqlx::query_as::<_, InvitationRow>(
-        "INSERT INTO invitations (email, invited_by, token, expires_at)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, email, invited_by, token, expires_at, accepted, created_at"
+        "INSERT INTO invitations (workspace_id, email, invited_by, token, expires_at)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, workspace_id, email, invited_by, token, expires_at, accepted, created_at"
     )
+    .bind(workspace_id)
     .bind(email)
     .bind(invited_by)
     .bind(token)
@@ -72,7 +78,7 @@ pub async fn create_invitation(
 
 pub async fn get_invitation_by_token(pool: &PgPool, token: &str) -> eyre::Result<Option<InvitationRow>> {
     let row = sqlx::query_as::<_, InvitationRow>(
-        "SELECT id, email, invited_by, token, expires_at, accepted, created_at
+        "SELECT id, workspace_id, email, invited_by, token, expires_at, accepted, created_at
          FROM invitations
          WHERE token = $1 AND accepted = false AND expires_at > now()"
     )
@@ -83,14 +89,15 @@ pub async fn get_invitation_by_token(pool: &PgPool, token: &str) -> eyre::Result
     Ok(row)
 }
 
-pub async fn get_pending_by_email(pool: &PgPool, email: &str) -> eyre::Result<Option<InvitationRow>> {
+pub async fn get_pending_by_email(pool: &PgPool, workspace_id: Uuid, email: &str) -> eyre::Result<Option<InvitationRow>> {
     let row = sqlx::query_as::<_, InvitationRow>(
-        "SELECT id, email, invited_by, token, expires_at, accepted, created_at
+        "SELECT id, workspace_id, email, invited_by, token, expires_at, accepted, created_at
          FROM invitations
-         WHERE email = $1 AND accepted = false AND expires_at > now()
+         WHERE workspace_id = $1 AND email = $2 AND accepted = false
          ORDER BY created_at DESC
          LIMIT 1"
     )
+    .bind(workspace_id)
     .bind(email)
     .fetch_optional(pool)
     .await?;
@@ -107,13 +114,14 @@ pub async fn mark_invitation_accepted(pool: &PgPool, invitation_id: Uuid) -> eyr
     Ok(())
 }
 
-pub async fn list_pending_invitations(pool: &PgPool) -> eyre::Result<Vec<InvitationRow>> {
+pub async fn list_workspace_invitations(pool: &PgPool, workspace_id: Uuid) -> eyre::Result<Vec<InvitationRow>> {
     let rows = sqlx::query_as::<_, InvitationRow>(
-        "SELECT id, email, invited_by, token, expires_at, accepted, created_at
+        "SELECT id, workspace_id, email, invited_by, token, expires_at, accepted, created_at
          FROM invitations
-         WHERE accepted = false AND expires_at > now()
+         WHERE workspace_id = $1 AND accepted = false
          ORDER BY created_at DESC"
     )
+    .bind(workspace_id)
     .fetch_all(pool)
     .await?;
 

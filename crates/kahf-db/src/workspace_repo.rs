@@ -40,6 +40,15 @@
 //!
 //! Removes a member from a workspace.
 //!
+//! ## list_members
+//!
+//! Returns all members of a workspace with user details (email,
+//! first_name, last_name, avatar_url) joined from the users table.
+//!
+//! ## update_member_role
+//!
+//! Updates a member's role within a workspace.
+//!
 //! ## user_has_workspaces
 //!
 //! Returns whether a user belongs to at least one workspace.
@@ -176,6 +185,55 @@ pub async fn add_member(
     sqlx::query(
         "INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)
          ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role"
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .bind(role)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct WorkspaceMemberDetail {
+    pub user_id: Uuid,
+    pub email: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub avatar_url: Option<String>,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+}
+
+pub async fn list_members(
+    pool: &PgPool,
+    workspace_id: Uuid,
+) -> eyre::Result<Vec<WorkspaceMemberDetail>> {
+    let rows = sqlx::query_as::<_, WorkspaceMemberDetail>(
+        "SELECT wm.user_id, u.email, u.first_name, u.last_name, u.avatar_url,
+                wm.role, wm.joined_at
+         FROM workspace_members wm
+         INNER JOIN users u ON u.id = wm.user_id
+         WHERE wm.workspace_id = $1
+         ORDER BY wm.joined_at ASC"
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
+pub async fn update_member_role(
+    pool: &PgPool,
+    workspace_id: Uuid,
+    user_id: Uuid,
+    role: &str,
+) -> eyre::Result<()> {
+    sqlx::query(
+        "UPDATE workspace_members SET role = $3
+         WHERE workspace_id = $1 AND user_id = $2"
     )
     .bind(workspace_id)
     .bind(user_id)

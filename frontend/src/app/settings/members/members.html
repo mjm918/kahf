@@ -1,0 +1,158 @@
+<div class="p-6">
+  <h2 class="text-base font-semibold mt-0 mb-4" style="color: #323130">Members</h2>
+
+  @if (error()) {
+    <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ error() }}
+    </ejs-message>
+  }
+
+  @if (success()) {
+    <ejs-message severity="Success" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ success() }}
+    </ejs-message>
+  }
+
+  <div class="flex items-end gap-2 mb-4">
+    <div class="flex-1" style="max-width: 300px">
+      <label class="text-xs font-semibold mb-1 block" style="color: #605E5C">Invite by email</label>
+      <ejs-textbox [(ngModel)]="inviteEmail" placeholder="email@example.com"></ejs-textbox>
+    </div>
+    <button
+      ejs-button
+      [isPrimary]="true"
+      [disabled]="inviteLoading()"
+      [content]="inviteLoading() ? 'Sending...' : 'Invite'"
+      (click)="onInvite()"
+    ></button>
+  </div>
+
+  @if (inviteError()) {
+    <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ inviteError() }}
+    </ejs-message>
+  }
+
+  @if (loading()) {
+    <p class="text-xs" style="color: #605E5C">Loading members...</p>
+  } @else {
+    <div class="flex flex-col gap-2">
+      @for (member of members(); track member.user_id) {
+        <div class="flex items-center gap-3 px-3 py-2.5 rounded" style="border: 1px solid #EDEBE9">
+          <div
+            class="flex items-center justify-center rounded-full shrink-0"
+            style="background: #EDEBE9; width: 28px; height: 28px; font-size: 10px; color: #605E5C; font-weight: 600"
+          >{{ member.first_name[0]?.toUpperCase() }}{{ member.last_name[0]?.toUpperCase() }}</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-semibold" style="color: #323130">{{ memberName(member) }}</div>
+            <div class="text-[11px]" style="color: #A19F9D">{{ member.email }}</div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <ejs-dropdownlist
+              [dataSource]="roleOptions"
+              [fields]="{ text: 'text', value: 'value' }"
+              [value]="member.role"
+              cssClass="e-small"
+              width="100px"
+              [enabled]="canChangeRole(member)"
+              (change)="onRoleChange(member, $event.value)"
+            ></ejs-dropdownlist>
+            @if (canRemove(member)) {
+              <button
+                ejs-button
+                cssClass="e-small e-flat"
+                iconCss="e-icons e-trash"
+                title="Remove member"
+                (click)="confirmRemove(member)"
+              ></button>
+            }
+          </div>
+        </div>
+      }
+    </div>
+
+    @if (members().length === 0) {
+      <p class="text-xs mt-4" style="color: #A19F9D">No members found.</p>
+    }
+
+    @if (pendingInvites().length > 0) {
+      <h3 class="text-sm font-semibold mt-6 mb-2" style="color: #323130">Pending invitations</h3>
+      <div class="flex flex-col gap-2">
+        @for (invite of pendingInvites(); track invite.id) {
+          <div class="flex items-center gap-3 px-3 py-2.5 rounded" style="border: 1px solid #EDEBE9">
+            <div
+              class="flex items-center justify-center rounded-full shrink-0"
+              style="background: #FFF4CE; width: 28px; height: 28px; font-size: 10px; color: #986F0B; font-weight: 600"
+            >?</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold" style="color: #323130">{{ invite.email }}</div>
+              <div class="text-[11px]" style="color: #A19F9D">Invited {{ invite.created_at | date:'mediumDate' }}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              @if (invite.expires_at < now) {
+                <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background: #FDE7E9; color: #D13438">Expired</span>
+              } @else {
+                <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background: #FFF4CE; color: #986F0B">Pending</span>
+              }
+              <button
+                ejs-button
+                cssClass="e-small e-flat"
+                [content]="reinviteLoadingId() === invite.id ? 'Sending...' : 'Re-invite'"
+                [disabled]="reinviteLoadingId() === invite.id"
+                (click)="reInvite(invite)"
+              ></button>
+              <button
+                ejs-button
+                cssClass="e-small e-flat"
+                iconCss="e-icons e-trash"
+                title="Cancel invitation"
+                [disabled]="cancelInviteLoadingId() === invite.id"
+                (click)="confirmCancelInvite(invite)"
+              ></button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  }
+
+  <ejs-dialog
+    [visible]="showRemoveDialog()"
+    [isModal]="true"
+    [showCloseIcon]="true"
+    header="Remove member"
+    width="380px"
+    cssClass="e-small"
+    (close)="showRemoveDialog.set(false)"
+  >
+    <ng-template #content>
+      <p class="text-xs m-0" style="color: #605E5C">
+        Are you sure you want to remove <strong>{{ memberToRemove()?.first_name }} {{ memberToRemove()?.last_name }}</strong> from this workspace?
+      </p>
+    </ng-template>
+    <ng-template #footerTemplate>
+      <button ejs-button cssClass="e-small e-flat" content="Cancel" (click)="showRemoveDialog.set(false)"></button>
+      <button ejs-button cssClass="e-small e-danger" content="Remove" (click)="onRemove()"></button>
+    </ng-template>
+  </ejs-dialog>
+
+  <ejs-dialog
+    [visible]="showCancelInviteDialog()"
+    [isModal]="true"
+    [showCloseIcon]="true"
+    header="Cancel invitation"
+    width="380px"
+    cssClass="e-small"
+    (close)="showCancelInviteDialog.set(false)"
+  >
+    <ng-template #content>
+      <p class="text-xs m-0" style="color: #605E5C">
+        Are you sure you want to cancel the invitation to <strong>{{ inviteToCancel()?.email }}</strong>?
+      </p>
+    </ng-template>
+    <ng-template #footerTemplate>
+      <button ejs-button cssClass="e-small e-flat" content="Keep" (click)="showCancelInviteDialog.set(false)"></button>
+      <button ejs-button cssClass="e-small e-danger" content="Cancel invitation" (click)="onCancelInvite()"></button>
+    </ng-template>
+  </ejs-dialog>
+</div>

@@ -1,0 +1,89 @@
+<div class="p-6 max-w-lg">
+  <h2 class="text-base font-semibold mt-0 mb-4" style="color: #323130">Workspace settings</h2>
+
+  @if (error()) {
+    <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ error() }}
+    </ejs-message>
+  }
+
+  @if (success()) {
+    <ejs-message severity="Success" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ success() }}
+    </ejs-message>
+  }
+
+  <div class="flex flex-col gap-4">
+    <div>
+      <label class="text-xs font-semibold mb-1 block" style="color: #605E5C">Workspace name</label>
+      <ejs-textbox [(ngModel)]="name" placeholder="Workspace name" cssClass="e-small"></ejs-textbox>
+    </div>
+    <div>
+      <label class="text-xs font-semibold mb-2 block" style="color: #605E5C">Color</label>
+      <div class="flex flex-wrap gap-1.5">
+        @for (c of wsColors; track c) {
+          <button
+            type="button"
+            class="border-none cursor-pointer rounded-sm flex items-center justify-center"
+            [style.background]="c"
+            [style.outline]="selectedColor() === c ? '2px solid ' + c : '2px solid transparent'"
+            [style.outline-offset]="'1px'"
+            style="width: 24px; height: 24px; padding: 0"
+            (click)="selectColor(c)"
+          >
+            @if (selectedColor() === c) {
+              <span class="e-icons e-check" style="font-size: 10px; color: #fff"></span>
+            }
+          </button>
+        }
+      </div>
+    </div>
+    <div class="mt-2">
+      <button
+        ejs-button
+        cssClass="e-small"
+        [isPrimary]="true"
+        [disabled]="loading()"
+        [content]="loading() ? 'Saving...' : 'Save changes'"
+        (click)="onSave()"
+      ></button>
+    </div>
+  </div>
+
+  <hr class="my-6" style="border-color: #EDEBE9" />
+
+  <div>
+    <h3 class="text-sm font-semibold mt-0 mb-2" style="color: #D13438">Danger zone</h3>
+    <p class="text-xs mb-3" style="color: #605E5C">
+      Deleting a workspace removes all associated data permanently.
+    </p>
+    <button
+      ejs-button
+      cssClass="e-small e-outline e-danger"
+      [content]="deleteLoading() ? 'Deleting...' : 'Delete workspace'"
+      [disabled]="deleteLoading()"
+      (click)="confirmDelete()"
+    ></button>
+  </div>
+
+  <ejs-dialog
+    [visible]="showDeleteDialog()"
+    [isModal]="true"
+    [showCloseIcon]="true"
+    header="Delete workspace"
+    width="400px"
+    cssClass="e-small"
+    (close)="showDeleteDialog.set(false)"
+  >
+    <ng-template #content>
+      <p class="text-xs m-0" style="color: #605E5C">
+        Are you sure you want to delete <strong>{{ currentWorkspace()?.name }}</strong>?
+        This action cannot be undone and will remove all workspace data permanently.
+      </p>
+    </ng-template>
+    <ng-template #footerTemplate>
+      <button ejs-button cssClass="e-small e-flat" content="Cancel" (click)="showDeleteDialog.set(false)"></button>
+      <button ejs-button cssClass="e-small e-danger" content="Delete" (click)="onDelete()"></button>
+    </ng-template>
+  </ejs-dialog>
+</div>

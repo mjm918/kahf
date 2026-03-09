@@ -112,6 +112,13 @@ export class AuthService {
     return data;
   }
 
+  updateCurrentUser(data: Partial<AuthUser>): void {
+    const current = this.user();
+    if (current) {
+      this.user.set({ ...current, ...data });
+    }
+  }
+
   async logout(): Promise<void> {
     try {
       await api.post('/auth/logout');

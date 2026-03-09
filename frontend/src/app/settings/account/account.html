@@ -1,0 +1,51 @@
+<div class="p-6 max-w-lg">
+  <h2 class="text-base font-semibold mt-0 mb-4" style="color: #323130">Account settings</h2>
+
+  <div class="flex items-center gap-4 mb-6">
+    <div
+      class="e-avatar e-avatar-circle flex items-center justify-center"
+      style="width: 64px; height: 64px; min-width: 64px; background: #EDEBE9; font-size: 20px; color: #605E5C; font-weight: 600"
+    >{{ userInitials() }}</div>
+    <div>
+      <div class="text-sm font-semibold" style="color: #323130">{{ firstName }} {{ lastName }}</div>
+      <div class="text-xs mt-0.5" style="color: #605E5C">{{ email() }}</div>
+    </div>
+  </div>
+
+  @if (error()) {
+    <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ error() }}
+    </ejs-message>
+  }
+
+  @if (success()) {
+    <ejs-message severity="Success" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+      {{ success() }}
+    </ejs-message>
+  }
+
+  <div class="flex flex-col gap-3">
+    <div>
+      <label class="text-xs font-semibold mb-1 block" style="color: #605E5C">First name</label>
+      <ejs-textbox [(ngModel)]="firstName" placeholder="First name" cssClass="e-small"></ejs-textbox>
+    </div>
+    <div>
+      <label class="text-xs font-semibold mb-1 block" style="color: #605E5C">Last name</label>
+      <ejs-textbox [(ngModel)]="lastName" placeholder="Last name" cssClass="e-small"></ejs-textbox>
+    </div>
+    <div>
+      <label class="text-xs font-semibold mb-1 block" style="color: #605E5C">Email</label>
+      <ejs-textbox [value]="email()" [readonly]="true" cssClass="e-small"></ejs-textbox>
+    </div>
+    <div class="mt-2">
+      <button
+        ejs-button
+        cssClass="e-small"
+        [isPrimary]="true"
+        [disabled]="loading()"
+        [content]="loading() ? 'Saving...' : 'Save changes'"
+        (click)="onSave()"
+      ></button>
+    </div>
+  </div>
+</div>
