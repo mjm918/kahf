@@ -8,8 +8,8 @@
 //! emails, invalid OTP codes, and unverified login attempts.
 
 use chrono::Duration;
-use kahf_email::generate_otp;
-use kahf_email::OTP_TTL_MINUTES;
+use kahf_notify::generate_otp;
+use kahf_notify::OTP_TTL_MINUTES;
 use kahf_auth::jwt::{JwtConfig, issue_access_token, issue_refresh_token, verify_token};
 use kahf_auth::password::{hash_password, verify_password};
 use kahf_auth::service;

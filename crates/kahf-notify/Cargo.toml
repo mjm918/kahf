@@ -1,0 +1,23 @@
+[package]
+name = "kahf-notify"
+description = "Unified notification system for KahfLane: email (SMTP/Tera), Telegram (teloxide), web push (VAPID), in-app (WebSocket), user preferences, and channel dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lettre = { workspace = true }
+tera = "1"
+rand = "0.9"
+reqwest = { workspace = true }
+web-push = "0.11"
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+eyre = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+dotenvy = { workspace = true }

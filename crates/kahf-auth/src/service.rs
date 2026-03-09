@@ -98,7 +98,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use kahf_email::{INVITE_TTL_DAYS, OTP_TTL_MINUTES, generate_otp};
+use kahf_notify::{INVITE_TTL_DAYS, OTP_TTL_MINUTES, generate_otp};
 use kahf_worker::JobProducer;
 use crate::jwt::{JwtConfig, issue_access_token, issue_refresh_token, verify_token};
 use crate::password::{hash_password, verify_password};

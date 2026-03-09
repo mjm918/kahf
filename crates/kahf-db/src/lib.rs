@@ -20,6 +20,11 @@
 //! - `tenant_repo` — Tenant create, get by owner/id
 //! - `password_history_repo` — Password history for reuse prevention
 //! - `refresh_token_repo` — Server-side refresh token storage, validation, and revocation
+//! - `notification_pref_repo` — Per-user, per-channel notification preference CRUD
+//! - `telegram_link_repo` — Telegram account linking for notification delivery
+//! - `telegram_link_code_repo` — Temporary link codes for secure bot-linking flow
+//! - `push_subscription_repo` — Web push subscription storage for browser push delivery
+//! - `notification_repo` — In-app notification persistence and read/unread management
 
 pub mod pool;
 pub mod event_store;
@@ -33,5 +38,10 @@ pub mod invite_repo;
 pub mod tenant_repo;
 pub mod password_history_repo;
 pub mod refresh_token_repo;
+pub mod notification_pref_repo;
+pub mod telegram_link_repo;
+pub mod telegram_link_code_repo;
+pub mod push_subscription_repo;
+pub mod notification_repo;
 
 pub use pool::DbPool;

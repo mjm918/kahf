@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 kahf-core = { workspace = true }
 kahf-db = { workspace = true }
-kahf-email = { workspace = true }
+kahf-notify = { workspace = true }
 kahf-worker = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }

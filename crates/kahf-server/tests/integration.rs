@@ -13,7 +13,7 @@ use axum::http::{Request, StatusCode};
 use kahf_auth::jwt::issue_access_token;
 use kahf_auth::JwtConfig;
 use kahf_db::DbPool;
-use kahf_email::EmailSender;
+use kahf_notify::EmailSender;
 use kahf_realtime::{BroadcastEventBus, Hub};
 use kahf_server::app_state::AppState;
 use kahf_worker::JobProducer;

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-kahf-email = { workspace = true }
+kahf-notify = { workspace = true }
 kahf-db = { workspace = true }
 
 apalis = { workspace = true }

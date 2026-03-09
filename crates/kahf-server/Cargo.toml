@@ -12,7 +12,7 @@ path = "src/main.rs"
 kahf-core = { workspace = true }
 kahf-db = { workspace = true }
 kahf-auth = { workspace = true }
-kahf-email = { workspace = true }
+kahf-notify = { workspace = true }
 kahf-rbac = { workspace = true }
 kahf-worker = { workspace = true }
 kahf-realtime = { path = "../kahf-realtime" }
@@ -31,12 +31,12 @@ tracing-subscriber = { workspace = true }
 
 uuid = { workspace = true }
 chrono = { workspace = true }
+reqwest = { workspace = true }
 eyre = { workspace = true }
 color-eyre = { workspace = true }
 dotenvy = { workspace = true }
 
 [dev-dependencies]
-reqwest = { workspace = true }
 kahf-worker = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 tokio-tungstenite = "0.28"

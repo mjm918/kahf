@@ -1,6 +1,6 @@
 //! Email job handlers.
 //!
-//! Processes email delivery jobs by delegating to `kahf_email::EmailSender`.
+//! Processes email delivery jobs by delegating to `kahf_notify::EmailSender`.
 //! Each handler runs on a blocking thread pool via `spawn_blocking` to avoid
 //! blocking the tokio runtime (lettre uses synchronous SMTP transport).
 //!
@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use apalis::prelude::Data;
-use kahf_email::EmailSender;
+use kahf_notify::EmailSender;
 
 use crate::audit::{JobAuditor, JobStatus};
 use crate::jobs::email::{SendInviteEmail, SendOtpEmail, SendPasswordResetEmail};

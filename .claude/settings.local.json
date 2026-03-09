@@ -29,7 +29,9 @@
       "mcp__playwright__browser_click",
       "mcp__dbhub__execute_sql",
       "Bash(psql:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "WebFetch(domain:*)",
+      "Bash(cargo search:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

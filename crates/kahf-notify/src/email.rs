@@ -1,55 +1,35 @@
-//! Email delivery and HTML templating for the KahfLane platform.
-//!
-//! Provides SMTP email transport, Tera-based HTML template rendering, and
-//! OTP generation. Templates are embedded at compile time from the `templates/`
-//! directory using Tera's inheritance system (base layout + per-email blocks).
+//! SMTP email delivery with Tera HTML templating.
 //!
 //! ## EmailSender
 //!
-//! Trait abstracting email delivery. Methods: `send_otp` for email verification,
-//! `send_password_reset_otp` for password reset codes, and `send_invite` for
-//! tenant-level invitation links. Implemented by `SmtpEmailSender` for
-//! production use. Tests can supply a no-op implementation.
+//! Trait abstracting email delivery with three methods: `send_otp` for
+//! verification codes, `send_password_reset_otp` for password reset codes,
+//! and `send_invite` for tenant invitation links.
 //!
 //! ## SmtpEncryption
 //!
-//! Transport encryption mode: `Tls` (implicit TLS), `StartTls`
-//! (upgrade-to-TLS), or `None` (plaintext). Configured via the
-//! `EMAIL_ENCRYPTION` env var (values: `tls`, `starttls`, `none`;
-//! defaults to `tls`).
+//! Transport encryption mode parsed from the `EMAIL_ENCRYPTION` env var:
+//! `Tls` (default), `StartTls`, or `None`.
 //!
 //! ## SmtpConfig
 //!
-//! SMTP connection configuration: `host`, `port`, `username`, `password`,
-//! `from_email`, `sender_email`, `encryption`. Loaded from environment
-//! variables by `SmtpConfig::from_env()`.
+//! SMTP connection parameters loaded from `EMAIL_HOST`, `EMAIL_PORT`,
+//! `EMAIL_USER`, `EMAIL_PW`, `EMAIL_FROM`, `SENDER_EMAIL`, and
+//! `EMAIL_ENCRYPTION` environment variables.
 //!
 //! ## SmtpEmailSender
 //!
-//! Production email sender combining `SmtpConfig` with a compiled `Tera`
-//! template engine. Constructed via `SmtpEmailSender::new()`.
-//!
-//! ## generate_otp
-//!
-//! Generates a cryptographically random 6-digit numeric OTP string.
-//!
-//! ## OTP_TTL_MINUTES
-//!
-//! OTP expiration time in minutes (10).
-//!
-//! ## INVITE_TTL_DAYS
-//!
-//! Invitation expiration time in days (7).
+//! Production implementation combining `SmtpConfig` with compiled Tera
+//! templates (embedded at build time via `include_str!`). Uses lettre
+//! synchronous SMTP transport — callers should run on a blocking thread.
 
 use eyre::WrapErr;
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
-use rand::Rng;
 use tera::{Context, Tera};
 
-pub const OTP_TTL_MINUTES: i64 = 10;
-pub const INVITE_TTL_DAYS: i64 = 7;
+use crate::otp::{INVITE_TTL_DAYS, OTP_TTL_MINUTES};
 
 pub trait EmailSender: Send + Sync {
     fn send_otp(&self, to_email: &str, otp_code: &str) -> eyre::Result<()>;
@@ -102,12 +82,6 @@ impl SmtpConfig {
     }
 }
 
-pub fn generate_otp() -> String {
-    let mut rng = rand::rng();
-    let code: u32 = rng.random_range(100_000..1_000_000);
-    code.to_string()
-}
-
 fn build_tera() -> eyre::Result<Tera> {
     let mut tera = Tera::default();
     tera.add_raw_templates(vec![
@@ -121,10 +95,6 @@ fn build_tera() -> eyre::Result<Tera> {
 }
 
 fn current_year() -> i32 {
-    chrono_free_year()
-}
-
-fn chrono_free_year() -> i32 {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

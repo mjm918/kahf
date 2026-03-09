@@ -75,7 +75,8 @@
           },
           "defaultConfiguration": "development",
           "options": {
-            "proxyConfig": "proxy.conf.json"
+            "proxyConfig": "proxy.conf.json",
+            "allowedHosts": ["kahflane.kaboot.space"]
           }
         },
         "test": {

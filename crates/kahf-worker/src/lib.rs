@@ -8,28 +8,28 @@
 //! ## Job
 //!
 //! Trait that all job types must implement. Provides the job type name
-//! used for audit logging and Redis queue namespacing. Blanket-implemented
-//! via a derive-free approach — just implement `JOB_TYPE` as an associated
-//! constant.
+//! used for audit logging and Redis queue namespacing.
 //!
 //! ## JobProducer
 //!
 //! Cloneable handle held in `AppState`. Exposes a single generic
-//! `enqueue<J: Job>(job)` method that works with any job type. Internally
-//! creates `RedisStorage<J>` from a shared connection pool. Each enqueue
-//! generates a UUID job ID, records an `Enqueued` audit entry, and pushes
-//! the job to Redis.
+//! `enqueue<J: Job>(job)` method that works with any job type.
+//!
+//! ## WorkerDeps
+//!
+//! Optional dependencies for notification channel workers. Telegram and
+//! web push senders are `Option`-wrapped — workers are only registered
+//! when the corresponding env vars are set.
 //!
 //! ## start_workers
 //!
 //! Creates apalis workers for all registered job types and returns a
-//! `Monitor`. Adding a new job type requires only: defining the struct,
-//! implementing `Job`, writing a handler function, and registering the
-//! worker in `start_workers`.
+//! `Monitor`. Channels without configured senders are skipped.
 //!
 //! ## jobs
 //!
-//! Job struct definitions organized by domain (email, audit, etc).
+//! Job struct definitions organized by domain (email, telegram, web_push,
+//! notification, audit).
 //!
 //! ## handlers
 //!
@@ -52,7 +52,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use audit::{JobAuditor, JobStatus};
-use kahf_email::EmailSender;
+use kahf_notify::{EmailSender, TelegramSender, WebPushSender};
 
 pub trait Job: Serialize + DeserializeOwned + Send + Sync + Unpin + Clone + 'static {
     const JOB_TYPE: &'static str;
@@ -113,10 +113,16 @@ impl JobProducer {
     }
 }
 
+pub struct WorkerDeps {
+    pub mailer: Arc<dyn EmailSender>,
+    pub telegram: Option<Arc<TelegramSender>>,
+    pub web_push: Option<Arc<WebPushSender>>,
+}
+
 pub async fn start_workers(
     redis_url: &str,
     pool: PgPool,
-    mailer: Arc<dyn EmailSender>,
+    deps: WorkerDeps,
 ) -> eyre::Result<Monitor> {
     let conn = apalis_redis::connect(redis_url)
         .await
@@ -128,39 +134,72 @@ pub async fn start_workers(
     let reset_config = apalis_redis::Config::default().set_namespace("kahflane:SendPasswordResetEmail");
     let invite_config = apalis_redis::Config::default().set_namespace("kahflane:SendInviteEmail");
     let audit_config = apalis_redis::Config::default().set_namespace("kahflane:AuditLog");
+    let notif_config = apalis_redis::Config::default().set_namespace("kahflane:CreateInAppNotification");
 
     let otp_worker = WorkerBuilder::new("email-otp")
-        .data(mailer.clone())
+        .data(deps.mailer.clone())
         .data(auditor.clone())
         .enable_tracing()
         .backend(RedisStorage::<jobs::SendOtpEmail>::new_with_config(conn.clone(), otp_config))
         .build_fn(handlers::email::handle_send_otp);
 
     let reset_worker = WorkerBuilder::new("email-reset")
-        .data(mailer.clone())
+        .data(deps.mailer.clone())
         .data(auditor.clone())
         .enable_tracing()
         .backend(RedisStorage::<jobs::SendPasswordResetEmail>::new_with_config(conn.clone(), reset_config))
         .build_fn(handlers::email::handle_send_password_reset);
 
     let invite_worker = WorkerBuilder::new("email-invite")
-        .data(mailer)
-        .data(auditor)
+        .data(deps.mailer)
+        .data(auditor.clone())
         .enable_tracing()
         .backend(RedisStorage::<jobs::SendInviteEmail>::new_with_config(conn.clone(), invite_config))
         .build_fn(handlers::email::handle_send_invite);
 
+    let notif_worker = WorkerBuilder::new("in-app-notification")
+        .data(pool.clone())
+        .data(auditor.clone())
+        .enable_tracing()
+        .backend(RedisStorage::<jobs::CreateInAppNotification>::new_with_config(conn.clone(), notif_config))
+        .build_fn(handlers::notification::handle_create_in_app_notification);
+
     let audit_worker = WorkerBuilder::new("audit-log")
         .data(pool)
         .enable_tracing()
-        .backend(RedisStorage::<jobs::AuditLog>::new_with_config(conn, audit_config))
+        .backend(RedisStorage::<jobs::AuditLog>::new_with_config(conn.clone(), audit_config))
         .build_fn(handlers::audit::handle_audit_log);
 
-    let monitor = Monitor::new()
+    let mut monitor = Monitor::new()
         .register(otp_worker)
         .register(reset_worker)
         .register(invite_worker)
+        .register(notif_worker)
         .register(audit_worker);
+
+    if let Some(telegram) = deps.telegram {
+        tracing::info!("registering Telegram notification worker");
+        let tg_config = apalis_redis::Config::default().set_namespace("kahflane:SendTelegramMessage");
+        let tg_worker = WorkerBuilder::new("telegram")
+            .data(telegram)
+            .data(auditor.clone())
+            .enable_tracing()
+            .backend(RedisStorage::<jobs::SendTelegramMessage>::new_with_config(conn.clone(), tg_config))
+            .build_fn(handlers::telegram::handle_send_telegram);
+        monitor = monitor.register(tg_worker);
+    }
+
+    if let Some(web_push) = deps.web_push {
+        tracing::info!("registering web push notification worker");
+        let wp_config = apalis_redis::Config::default().set_namespace("kahflane:SendWebPush");
+        let wp_worker = WorkerBuilder::new("web-push")
+            .data(web_push)
+            .data(auditor)
+            .enable_tracing()
+            .backend(RedisStorage::<jobs::SendWebPush>::new_with_config(conn, wp_config))
+            .build_fn(handlers::web_push::handle_send_web_push);
+        monitor = monitor.register(wp_worker);
+    }
 
     Ok(monitor)
 }

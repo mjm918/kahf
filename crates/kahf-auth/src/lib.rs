@@ -3,7 +3,7 @@
 //! Provides password hashing, JWT token management, email OTP verification,
 //! password reset, tenant-level user invitations, and axum middleware for
 //! the KahfLane platform. Depends on `kahf-db` for user, session, OTP, and
-//! invitation storage. Email delivery is delegated to the `kahf-email` crate.
+//! invitation storage. Email delivery is delegated to the `kahf-notify` crate.
 //!
 //! ## Modules
 //!
@@ -19,4 +19,4 @@ pub mod service;
 
 pub use jwt::{Claims, JwtConfig};
 pub use middleware::AuthUser;
-pub use kahf_email::{EmailSender, SmtpConfig, SmtpEmailSender};
+pub use kahf_notify::{EmailSender, SmtpConfig, SmtpEmailSender};
