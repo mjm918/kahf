@@ -31,6 +31,12 @@ Run `./scripts/dev.sh` to start both backend and frontend. It kills existing ins
 - Rust: ONLY `//!` block comments at the top of the file. No `///` item-level doc comments. No `//` comments anywhere.
 - TypeScript/Angular: ONLY `/** */` JSDoc block comments at the top of each file. No `//` comments anywhere.
 
+### No Duplicate Code — Single Source of Truth
+- NEVER duplicate constants, types, interfaces, or logic across files. If a value is used in more than one place, extract it to a shared location and import it.
+- Before defining a new constant, type, or helper, SEARCH the codebase first (Grep/Glob) to check if it already exists.
+- Shared frontend constants go in the relevant service (e.g., `WORKSPACE_COLORS` in `workspace.service.ts`). Shared backend constants go in the relevant crate's lib or a dedicated constants module.
+- If you find yourself copy-pasting code between components, STOP — extract it into a shared service, utility, or constant first.
+
 ### Libraries Over Custom Code
 - ALWAYS prefer an established library over writing custom code.
 - Check crates.io (Rust) or npm (TypeScript) FIRST before implementing anything.

@@ -1,0 +1,185 @@
+<!-- Two-step onboarding wizard: workspace creation with color picker, then team invitations. -->
+
+<div class="min-h-screen flex items-center justify-center" style="background: var(--color-sf-content-bg-color)">
+  <div class="w-full max-w-md">
+
+    <div class="flex flex-col items-center mb-6">
+      <span class="text-lg font-semibold" style="color: var(--color-sf-content-text-color)">
+        Welcome{{ userName ? ', ' + userName : '' }}!
+      </span>
+      <span class="text-xs mt-1" style="color: var(--color-sf-content-text-color-alt2)">
+        Let's set up your workspace
+      </span>
+    </div>
+
+    <div class="flex items-center justify-center gap-2 mb-6">
+      <div
+        class="flex items-center justify-center rounded-full text-[10px] font-semibold"
+        [style.background]="step() >= 1 ? '#0078D4' : '#D2D0CE'"
+        [style.color]="step() >= 1 ? '#fff' : '#605E5C'"
+        style="width: 22px; height: 22px"
+      >1</div>
+      <div class="h-px w-8" [style.background]="step() >= 2 ? '#0078D4' : '#D2D0CE'"></div>
+      <div
+        class="flex items-center justify-center rounded-full text-[10px] font-semibold"
+        [style.background]="step() >= 2 ? '#0078D4' : '#D2D0CE'"
+        [style.color]="step() >= 2 ? '#fff' : '#605E5C'"
+        style="width: 22px; height: 22px"
+      >2</div>
+    </div>
+
+    @if (step() === 1) {
+      <div class="e-card p-5 !rounded-sm" style="box-shadow: 0 1px 4px rgba(0,0,0,0.08)">
+        <div class="flex flex-col gap-1 mb-4">
+          <span class="text-sm font-semibold" style="color: var(--color-sf-content-text-color)">Create your workspace</span>
+          <span class="text-xs" style="color: var(--color-sf-content-text-color-alt2)">
+            A workspace is where your team organizes projects, tasks, and documents.
+          </span>
+        </div>
+
+        @if (error()) {
+          <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+            {{ error() }}
+          </ejs-message>
+        }
+
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-semibold" style="color: var(--color-sf-content-text-color-alt2); text-transform: uppercase; letter-spacing: 0.05em">
+              Workspace name
+            </span>
+            <ejs-textbox
+              [(ngModel)]="workspaceName"
+              placeholder="e.g. My Company, Design Team"
+              cssClass="e-small"
+            ></ejs-textbox>
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <span class="text-[10px] font-semibold" style="color: var(--color-sf-content-text-color-alt2); text-transform: uppercase; letter-spacing: 0.05em">
+              Workspace color
+            </span>
+            <div class="flex flex-wrap gap-2">
+              @for (color of colors; track color) {
+                <button
+                  type="button"
+                  class="border-none cursor-pointer rounded-sm flex items-center justify-center"
+                  [style.background]="color"
+                  [style.outline]="selectedColor() === color ? '2px solid ' + color : '2px solid transparent'"
+                  [style.outline-offset]="'2px'"
+                  style="width: 28px; height: 28px; padding: 0"
+                  (click)="selectColor(color)"
+                >
+                  @if (selectedColor() === color) {
+                    <span class="e-icons e-check" style="font-size: 12px; color: #fff"></span>
+                  }
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 mt-2 p-3 rounded-sm" [style.background]="selectedColor() + '12'">
+            <div
+              class="flex items-center justify-center rounded-sm text-white font-bold text-sm"
+              [style.background]="selectedColor()"
+              style="width: 36px; height: 36px; flex-shrink: 0"
+            >{{ workspaceName ? workspaceName[0].toUpperCase() : 'W' }}</div>
+            <div class="flex flex-col min-w-0">
+              <span class="text-xs font-semibold truncate" style="color: var(--color-sf-content-text-color)">
+                {{ workspaceName || 'Workspace' }}
+              </span>
+              <span class="text-[10px]" style="color: var(--color-sf-content-text-color-alt2)">Preview</span>
+            </div>
+          </div>
+
+          <button
+            ejs-button
+            [isPrimary]="true"
+            cssClass="e-small"
+            [disabled]="loading()"
+            [content]="loading() ? 'Creating...' : 'Create workspace'"
+            class="w-full mt-1"
+            (click)="onCreateWorkspace()"
+          ></button>
+        </div>
+      </div>
+    }
+
+    @if (step() === 2) {
+      <div class="e-card p-5 !rounded-sm" style="box-shadow: 0 1px 4px rgba(0,0,0,0.08)">
+        <div class="flex flex-col gap-1 mb-4">
+          <span class="text-sm font-semibold" style="color: var(--color-sf-content-text-color)">Invite your team</span>
+          <span class="text-xs" style="color: var(--color-sf-content-text-color-alt2)">
+            Send invitations to your team members. You can also do this later from settings.
+          </span>
+        </div>
+
+        @if (inviteError()) {
+          <ejs-message severity="Error" cssClass="e-small mb-3" [showIcon]="true" [showCloseIcon]="false">
+            {{ inviteError() }}
+          </ejs-message>
+        }
+
+        <div class="flex flex-col gap-3">
+          <div class="flex gap-2">
+            <ejs-textbox
+              [(ngModel)]="inviteEmail"
+              placeholder="colleague@company.com"
+              cssClass="e-small"
+              type="email"
+              class="flex-1"
+            ></ejs-textbox>
+            <button
+              ejs-button
+              cssClass="e-small"
+              [isPrimary]="true"
+              [disabled]="inviteLoading()"
+              [content]="inviteLoading() ? 'Sending...' : 'Invite'"
+              (click)="onInvite()"
+            ></button>
+          </div>
+
+          @if (invitedEmails().length > 0) {
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] font-semibold" style="color: var(--color-sf-content-text-color-alt2); text-transform: uppercase; letter-spacing: 0.05em">
+                Invited ({{ invitedEmails().length }})
+              </span>
+              <div class="flex flex-wrap gap-1">
+                @for (email of invitedEmails(); track email) {
+                  <span
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px]"
+                    style="background: #F3F2F1; color: var(--color-sf-content-text-color)"
+                  >
+                    <span class="e-icons e-check" style="font-size: 10px; color: #107C10"></span>
+                    {{ email }}
+                  </span>
+                }
+              </div>
+            </div>
+          }
+
+          <div class="flex gap-2 mt-2">
+            <button
+              ejs-button
+              cssClass="e-small e-outline"
+              content="Skip for now"
+              class="flex-1"
+              (click)="onFinish()"
+            ></button>
+            @if (invitedEmails().length > 0) {
+              <button
+                ejs-button
+                cssClass="e-small"
+                [isPrimary]="true"
+                content="Continue"
+                class="flex-1"
+                (click)="onFinish()"
+              ></button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+  </div>
+</div>

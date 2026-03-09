@@ -20,7 +20,8 @@
 //!
 //! Validates a 6-digit OTP code for a given email. If valid, marks the
 //! user's email as verified, marks the OTP as used, and issues
-//! access + refresh tokens. Returns `AuthResponse`.
+//! access + refresh tokens. The refresh token is stored server-side.
+//! Returns `AuthResponse`.
 //!
 //! ## resend_otp
 //!
@@ -30,11 +31,19 @@
 //! ## login
 //!
 //! Authenticates an existing user by email and password. Rejects users
-//! whose email is not yet verified. Returns `AuthResponse` on success.
+//! whose email is not yet verified. Issues access + refresh tokens and
+//! stores the refresh token server-side. Returns `AuthResponse` on success.
 //!
 //! ## refresh
 //!
-//! Exchanges a valid refresh token for a new access token.
+//! Validates a refresh token against the database (not just JWT signature).
+//! Revokes the old refresh token and issues a new one (rotation). Returns
+//! a new access token and refresh token pair.
+//!
+//! ## logout
+//!
+//! Revokes all active refresh tokens for the user. Called with a valid
+//! access token.
 //!
 //! ## forgot_password
 //!
@@ -46,7 +55,8 @@
 //!
 //! Validates a password reset OTP and updates the user's password.
 //! Hashes the new password with Argon2id, marks OTP as used, and
-//! invalidates remaining reset OTPs.
+//! invalidates remaining reset OTPs. Revokes all refresh tokens so
+//! existing sessions are invalidated.
 //!
 //! ## invite_user
 //!
@@ -130,6 +140,30 @@ pub struct InviteResponse {
 pub struct InviteValidation {
     pub email: String,
     pub expires_at: DateTime<Utc>,
+}
+
+async fn issue_and_store_tokens(
+    pool: &PgPool,
+    config: &JwtConfig,
+    user_id: Uuid,
+    email: String,
+    first_name: String,
+    last_name: String,
+) -> eyre::Result<AuthResponse> {
+    let access_token = issue_access_token(config, user_id, None, None)?;
+    let refresh_token = issue_refresh_token(config, user_id)?;
+
+    let expires_at = Utc::now() + config.refresh_ttl;
+    kahf_db::refresh_token_repo::store_refresh_token(pool, user_id, &refresh_token, expires_at).await?;
+
+    Ok(AuthResponse {
+        access_token,
+        refresh_token,
+        user_id,
+        email,
+        first_name,
+        last_name,
+    })
 }
 
 pub async fn registration_open(pool: &PgPool) -> eyre::Result<bool> {
@@ -218,17 +252,7 @@ pub async fn verify_otp(
     kahf_db::otp_repo::mark_otp_used(pool, otp.id).await?;
     kahf_db::user_repo::mark_email_verified(pool, user.id).await?;
 
-    let access_token = issue_access_token(config, user.id, None, None)?;
-    let refresh_token = issue_refresh_token(config, user.id)?;
-
-    Ok(AuthResponse {
-        access_token,
-        refresh_token,
-        user_id: user.id,
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
-    })
+    issue_and_store_tokens(pool, config, user.id, user.email, user.first_name, user.last_name).await
 }
 
 pub async fn resend_otp(
@@ -278,36 +302,36 @@ pub async fn login(
 
     verify_password(password, &user.password)?;
 
-    let access_token = issue_access_token(config, user.id, None, None)?;
-    let refresh_token = issue_refresh_token(config, user.id)?;
-
-    Ok(AuthResponse {
-        access_token,
-        refresh_token,
-        user_id: user.id,
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
-    })
+    issue_and_store_tokens(pool, config, user.id, user.email, user.first_name, user.last_name).await
 }
 
 pub async fn refresh(
     pool: &PgPool,
     config: &JwtConfig,
     refresh_token_str: &str,
-) -> eyre::Result<String> {
+) -> eyre::Result<AuthResponse> {
     let claims = verify_token(config, refresh_token_str)?;
 
     if claims.token_type != "refresh" {
         return Err(kahf_core::KahfError::unauthorized());
     }
 
-    kahf_db::user_repo::get_user_by_id(pool, claims.sub)
+    let stored = kahf_db::refresh_token_repo::validate_refresh_token(pool, refresh_token_str)
         .await?
         .ok_or_else(|| kahf_core::KahfError::unauthorized())?;
 
-    let access_token = issue_access_token(config, claims.sub, None, None)?;
-    Ok(access_token)
+    kahf_db::refresh_token_repo::revoke_token(pool, stored.id).await?;
+
+    let user = kahf_db::user_repo::get_user_by_id(pool, claims.sub)
+        .await?
+        .ok_or_else(|| kahf_core::KahfError::unauthorized())?;
+
+    issue_and_store_tokens(pool, config, user.id, user.email, user.first_name, user.last_name).await
+}
+
+pub async fn logout(pool: &PgPool, user_id: Uuid) -> eyre::Result<()> {
+    kahf_db::refresh_token_repo::revoke_all_user_tokens(pool, user_id).await?;
+    Ok(())
 }
 
 pub async fn forgot_password(
@@ -368,6 +392,8 @@ pub async fn reset_password(
 
     kahf_db::otp_repo::mark_otp_used(pool, otp.id).await?;
     kahf_db::otp_repo::invalidate_user_otps(pool, user.id, PURPOSE_PASSWORD_RESET).await?;
+
+    kahf_db::refresh_token_repo::revoke_all_user_tokens(pool, user.id).await?;
 
     Ok(MessageResponse {
         message: "password reset successfully".into(),

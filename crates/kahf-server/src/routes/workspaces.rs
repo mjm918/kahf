@@ -5,7 +5,8 @@
 //! ## POST /api/workspaces
 //!
 //! Creates a new workspace. The authenticated user becomes the owner.
-//! Automatically assigns the `owner` RBAC role. Body: `{ name, slug }`.
+//! Automatically assigns the `owner` RBAC role. Body: `{ name, slug,
+//! color? }`. The `color` field defaults to Azure blue `#0078D4`.
 //!
 //! ## GET /api/workspaces
 //!
@@ -14,6 +15,11 @@
 //! ## GET /api/workspaces/:id
 //!
 //! Returns a single workspace by ID.
+//!
+//! ## PATCH /api/workspaces/:id
+//!
+//! Updates a workspace's name and color. Requires `workspace:update`
+//! permission. Body: `{ name?, color? }`.
 //!
 //! ## POST /api/workspaces/:id/members
 //!
@@ -24,6 +30,12 @@
 //!
 //! Removes a member from a workspace and revokes all RBAC roles.
 //! Requires `member:delete` permission.
+//!
+//! ## GET /api/workspaces/onboarding-status
+//!
+//! Returns whether the authenticated user needs onboarding (has no
+//! workspaces). Used by frontend to redirect new users to workspace
+//! creation flow.
 
 use std::net::SocketAddr;
 
@@ -42,7 +54,8 @@ use crate::error::AppError;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/workspaces", post(create_workspace).get(list_workspaces))
-        .route("/api/workspaces/{id}", get(get_workspace))
+        .route("/api/workspaces/onboarding-status", get(onboarding_status))
+        .route("/api/workspaces/{id}", get(get_workspace).patch(update_workspace))
         .route("/api/workspaces/{id}/members", post(add_member))
         .route("/api/workspaces/{id}/members/{user_id}", delete(remove_member))
 }
@@ -51,6 +64,7 @@ pub fn router() -> Router<AppState> {
 struct CreateWorkspaceRequest {
     name: String,
     slug: String,
+    color: Option<String>,
 }
 
 async fn create_workspace(
@@ -60,10 +74,13 @@ async fn create_workspace(
     auth: AuthUser,
     axum::Json(body): axum::Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), AppError> {
+    let color = body.color.as_deref().unwrap_or("#0078D4");
+
     let ws = kahf_db::workspace_repo::create_workspace(
         state.pool(),
         &body.name,
         &body.slug,
+        color,
         auth.claims.sub,
     )
     .await?;
@@ -75,7 +92,7 @@ async fn create_workspace(
     audit::emit(
         &state.jobs, &ctx, Some(auth.claims.sub),
         "workspace.create", Some(format!("workspace:{ws_id}")),
-        "success", Some(serde_json::json!({"name": body.name, "slug": body.slug})),
+        "success", Some(serde_json::json!({"name": body.name, "slug": body.slug, "color": color})),
     ).await;
 
     Ok((StatusCode::CREATED, axum::Json(serde_json::to_value(ws)?)))
@@ -104,6 +121,56 @@ async fn get_workspace(
         .ok_or_else(|| kahf_core::KahfError::not_found("workspace", id.to_string()))?;
 
     Ok(axum::Json(serde_json::to_value(ws)?))
+}
+
+#[derive(Deserialize)]
+struct UpdateWorkspaceRequest {
+    name: Option<String>,
+    color: Option<String>,
+}
+
+async fn update_workspace(
+    State(state): State<AppState>,
+    ci: ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    auth: AuthUser,
+    Path(id): Path<Uuid>,
+    axum::Json(body): axum::Json<UpdateWorkspaceRequest>,
+) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let existing = kahf_db::workspace_repo::get_workspace(state.pool(), id)
+        .await?
+        .ok_or_else(|| kahf_core::KahfError::not_found("workspace", id.to_string()))?;
+
+    let name = body.name.as_deref().unwrap_or(&existing.name);
+    let color = body.color.as_deref().unwrap_or(&existing.color);
+
+    let ws = kahf_db::workspace_repo::update_workspace(state.pool(), id, name, color)
+        .await?
+        .ok_or_else(|| kahf_core::KahfError::not_found("workspace", id.to_string()))?;
+
+    let ctx = RequestContext::extract(&headers, Some(&ci));
+    audit::emit(
+        &state.jobs, &ctx, Some(auth.claims.sub),
+        "workspace.update", Some(format!("workspace:{id}")),
+        "success", Some(serde_json::json!({"name": name, "color": color})),
+    ).await;
+
+    Ok(axum::Json(serde_json::to_value(ws)?))
+}
+
+async fn onboarding_status(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<axum::Json<serde_json::Value>, AppError> {
+    let has_workspaces = kahf_db::workspace_repo::user_has_workspaces(
+        state.pool(),
+        auth.claims.sub,
+    )
+    .await?;
+
+    Ok(axum::Json(serde_json::json!({
+        "needs_onboarding": !has_workspaces,
+    })))
 }
 
 #[derive(Deserialize)]

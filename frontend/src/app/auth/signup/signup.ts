@@ -72,6 +72,7 @@ export class Signup implements OnInit, AfterViewInit {
   checkResults = signal<boolean[]>([false, false, false, false, false]);
   confirmMismatch = signal(false);
   isOwnerRegistration = signal(false);
+  emailReadonly = signal(false);
   fieldErrors = signal<FieldErrors>({ firstName: '', lastName: '', email: '', companyName: '' });
 
   private inviteToken: string | null = null;
@@ -125,6 +126,17 @@ export class Signup implements OnInit, AfterViewInit {
       if (!this.inviteToken) {
         this.router.navigate(['/auth/login'], {
           queryParams: { message: 'registration-closed' },
+        });
+        return;
+      }
+
+      try {
+        const invite = await this.auth.validateInvite(this.inviteToken);
+        this.email = invite.email;
+        this.emailReadonly.set(true);
+      } catch {
+        this.router.navigate(['/auth/login'], {
+          queryParams: { message: 'invalid-invite' },
         });
         return;
       }

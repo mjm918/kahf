@@ -1,18 +1,21 @@
 /**
- * Route guard that redirects unauthenticated users to /auth/login.
+ * Route guard that validates the user's session before allowing access.
  *
- * Checks the AuthService.isAuthenticated signal. If false, navigates
- * to the login page and blocks activation. Used on all protected
- * routes inside the app shell.
+ * Awaits AuthService.ensureInitialized() which validates the stored
+ * JWT against the backend on first call. If the token is invalid or
+ * missing, redirects to /auth/login. This prevents the localStorage
+ * bypass where a fake user JSON could fool a synchronous check.
  */
 
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 
-export const authGuard: CanActivateFn = () => {
+export const authGuard: CanActivateFn = async () => {
   const auth = inject(AuthService);
   const router = inject(Router);
+
+  await auth.ensureInitialized();
 
   if (auth.isAuthenticated()) {
     return true;

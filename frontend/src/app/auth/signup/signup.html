@@ -81,6 +81,7 @@
             placeholder="Email"
             type="email"
             class="w-full"
+            [readonly]="emailReadonly()"
             (blur)="validateEmail()"
           ></ejs-textbox>
           @if (fieldErrors().email) {

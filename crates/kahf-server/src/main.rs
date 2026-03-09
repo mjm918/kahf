@@ -60,7 +60,7 @@ async fn main() -> eyre::Result<()> {
     let event_bus = kahf_realtime::BroadcastEventBus::new(1024);
     let state = AppState::new(db, jwt.clone(), mailer, jobs, hub, event_bus, rbac);
 
-    let app = kahf_server::build_app(state, jwt);
+    let app = kahf_server::build_app(state, jwt, &config.frontend_url);
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

@@ -16,6 +16,7 @@ pub struct Config {
     pub jwt_secret: String,
     pub redis_url: String,
     pub smtp: SmtpConfig,
+    pub frontend_url: String,
     pub host: String,
     pub port: u16,
 }
@@ -33,6 +34,9 @@ impl Config {
 
         let smtp = SmtpConfig::from_env()?;
 
+        let frontend_url = std::env::var("FRONTEND_URL")
+            .unwrap_or_else(|_| "http://localhost:4200".into());
+
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
 
         let port = std::env::var("PORT")
@@ -45,6 +49,7 @@ impl Config {
             jwt_secret,
             redis_url,
             smtp,
+            frontend_url,
             host,
             port,
         })

@@ -212,7 +212,7 @@ impl EmailSender for SmtpEmailSender {
 
     fn send_invite(&self, to_email: &str, inviter_name: &str, invite_token: &str) -> eyre::Result<()> {
         let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:4200".into());
-        let invite_link = format!("{}/signup?invite={}", frontend_url, invite_token);
+        let invite_link = format!("{}/auth/signup?invite_token={}", frontend_url, invite_token);
 
         let mut ctx = Context::new();
         ctx.insert("subject", "KahfLane — You've been invited to join");

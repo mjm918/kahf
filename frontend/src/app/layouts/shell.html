@@ -1,9 +1,25 @@
 <div class="h-screen flex flex-col overflow-hidden">
-  <ejs-appbar [isSticky]="true" colorMode="Primary" cssClass="e-dense !rounded-none" style="height: 38px; min-height: 38px">
+  <ejs-appbar [isSticky]="true" colorMode="Primary" cssClass="e-dense !rounded-none" style="height: 45px; min-height: 45px">
     <button ejs-button cssClass="e-inherit e-small e-flat" iconCss="e-icons e-menu" (click)="toggleSidebar()"></button>
-    <span class="ml-3 text-xs font-semibold">KahfLane</span>
+    @if (currentWorkspace(); as ws) {
+      <button
+        class="flex items-center gap-2 ml-2 px-2 py-1.5 rounded-sm border-none cursor-pointer bg-white/10 hover:bg-white/20"
+        (click)="toggleWorkspacePanel($event)"
+        title="Switch workspace"
+      >
+        <span
+          class="flex items-center justify-center rounded-sm text-white font-bold"
+          [style.background]="ws.color"
+          style="width: 18px; height: 18px; font-size: 10px; flex-shrink: 0"
+        >{{ ws.name[0].toUpperCase() }}</span>
+        <span class="text-xs font-semibold text-white max-w-[120px] truncate">{{ ws.name }}</span>
+        <span class="e-icons e-chevron-down-fill text-white/70" style="font-size: 8px"></span>
+      </button>
+    } @else {
+      <span class="ml-3 text-xs font-semibold">KahfLane</span>
+    }
     <div class="e-appbar-spacer"></div>
-    <div class="flex items-center rounded-sm px-3 h-6 py-0.5 max-w-md w-full bg-white/15">
+    <div class="flex items-center rounded-sm px-3 h-8 py-0.5 max-w-md w-full bg-white/15">
       <span class="e-icons e-search text-white/80" style="font-size: 12px"></span>
       <input
         type="text"
@@ -59,16 +75,6 @@
             </button>
           }
         </div>
-        <div class="mt-auto mb-1">
-          <hr class="my-1 border-gray-200" />
-          <button
-            class="flex items-center gap-3 px-4 py-1.5 text-sm text-neutral-700 hover:bg-gray-100 text-left w-full border-none bg-transparent cursor-pointer"
-            (click)="onNavItemClick(settingsItem)"
-          >
-            <span class="e-icons e-settings text-azure" style="font-size: 14px"></span>
-            <span class="text-xs">Settings</span>
-          </button>
-        </div>
       </div>
     </ejs-sidebar>
     <main class="h-full overflow-auto">
@@ -76,8 +82,99 @@
     </main>
   </div>
 
+  @if (workspacePanelOpen()) {
+    <div class="absolute top-[45px] left-0 z-[1050]" (click)="$event.stopPropagation()">
+      <div class="e-card !rounded-none flex flex-col" style="width: 260px; box-shadow: 0 2px 8px rgba(0,0,0,0.15)">
+        <div class="px-3 py-2 flex items-center justify-between" style="border-bottom: 1px solid #EDEBE9">
+          <span class="text-[10px] font-semibold" style="color: #605E5C; text-transform: uppercase; letter-spacing: 0.05em">Workspaces</span>
+        </div>
+        <div class="flex flex-col max-h-64 overflow-y-auto">
+          @for (ws of workspaces(); track ws.id) {
+            <button
+              class="flex items-center gap-2.5 px-3 py-2 text-left w-full border-none cursor-pointer"
+              [style.background]="currentWorkspace()?.id === ws.id ? '#EBF3FC' : 'transparent'"
+              style="border-left: 3px solid transparent"
+              [style.border-left-color]="currentWorkspace()?.id === ws.id ? ws.color : 'transparent'"
+              (click)="switchWorkspace(ws.id)"
+            >
+              <span
+                class="flex items-center justify-center rounded-sm text-white font-bold"
+                [style.background]="ws.color"
+                style="width: 28px; height: 28px; font-size: 12px; flex-shrink: 0"
+              >{{ ws.name[0].toUpperCase() }}</span>
+              <div class="flex flex-col min-w-0 flex-1">
+                <span class="text-xs font-semibold truncate" style="color: #323130">{{ ws.name }}</span>
+              </div>
+              @if (currentWorkspace()?.id === ws.id) {
+                <span class="e-icons e-check" style="font-size: 12px; color: #0078D4"></span>
+              }
+            </button>
+          }
+        </div>
+        <div style="border-top: 1px solid #EDEBE9">
+          @if (!showCreateForm()) {
+            <button
+              class="flex items-center gap-2 px-3 py-2 text-left w-full border-none cursor-pointer bg-transparent hover:bg-gray-100"
+              (click)="toggleCreateForm()"
+            >
+              <span class="e-icons e-plus" style="font-size: 12px; color: #0078D4"></span>
+              <span class="text-xs font-semibold" style="color: #0078D4">New workspace</span>
+            </button>
+          } @else {
+            <div class="px-3 py-2 flex flex-col gap-2">
+              @if (newWsError()) {
+                <ejs-message severity="Error" cssClass="e-small" [showIcon]="true" [showCloseIcon]="false">
+                  {{ newWsError() }}
+                </ejs-message>
+              }
+              <ejs-textbox
+                [(ngModel)]="newWsName"
+                placeholder="Workspace name"
+                cssClass="e-small"
+              ></ejs-textbox>
+              <div class="flex flex-wrap gap-1.5">
+                @for (c of wsColors; track c) {
+                  <button
+                    type="button"
+                    class="border-none cursor-pointer rounded-sm flex items-center justify-center"
+                    [style.background]="c"
+                    [style.outline]="newWsColor() === c ? '2px solid ' + c : '2px solid transparent'"
+                    [style.outline-offset]="'1px'"
+                    style="width: 20px; height: 20px; padding: 0"
+                    (click)="selectNewWsColor(c)"
+                  >
+                    @if (newWsColor() === c) {
+                      <span class="e-icons e-check" style="font-size: 10px; color: #fff"></span>
+                    }
+                  </button>
+                }
+              </div>
+              <div class="flex gap-1.5">
+                <button
+                  ejs-button
+                  cssClass="e-small"
+                  [isPrimary]="true"
+                  [disabled]="newWsLoading()"
+                  [content]="newWsLoading() ? 'Creating...' : 'Create'"
+                  class="flex-1"
+                  (click)="onCreateWorkspace()"
+                ></button>
+                <button
+                  ejs-button
+                  cssClass="e-small e-flat"
+                  content="Cancel"
+                  (click)="toggleCreateForm()"
+                ></button>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
   @if (userPanelOpen()) {
-    <div class="absolute top-[38px] right-0 z-[1050]">
+    <div class="absolute top-[45px] right-0 z-[1050]">
       <div class="e-card !rounded-none flex flex-col" style="width: 340px; box-shadow: 0 2px 8px rgba(0,0,0,0.15)">
         <div class="flex w-full items-center !justify-between px-4 py-1.5 bg-azure">
           <div class="flex items-center gap-2">

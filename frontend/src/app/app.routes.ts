@@ -3,14 +3,16 @@
  *
  * Auth pages (login, signup, verify-otp, forgot-password, reset-password)
  * are protected by the guest guard so authenticated users get redirected
- * to the dashboard. The root path loads the Shell layout (protected by
- * the auth guard) which hosts child routes for all application modules.
- * Lazy-loaded where possible.
+ * to the dashboard. The onboarding route is protected by the auth guard
+ * and shown to users who have no workspaces yet. The root path loads
+ * the Shell layout (protected by auth + onboarding guards) which hosts
+ * child routes for all application modules. Lazy-loaded where possible.
  */
 
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
 import { guestGuard } from './core/guards/guest.guard';
+import { onboardingGuard } from './core/guards/onboarding.guard';
 
 export const routes: Routes = [
   {
@@ -39,8 +41,13 @@ export const routes: Routes = [
     loadComponent: () => import('./auth/reset-password/reset-password').then(m => m.ResetPassword),
   },
   {
-    path: '',
+    path: 'onboarding',
     canActivate: [authGuard],
+    loadComponent: () => import('./onboarding/onboarding').then(m => m.Onboarding),
+  },
+  {
+    path: '',
+    canActivate: [authGuard, onboardingGuard],
     loadComponent: () => import('./layouts/shell').then(m => m.Shell),
     children: [
       { path: '', redirectTo: 'home', pathMatch: 'full' },

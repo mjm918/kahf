@@ -19,6 +19,7 @@
 //! - `invite_repo` — Tenant-level invitation create, validate, accept, cancel
 //! - `tenant_repo` — Tenant create, get by owner/id
 //! - `password_history_repo` — Password history for reuse prevention
+//! - `refresh_token_repo` — Server-side refresh token storage, validation, and revocation
 
 pub mod pool;
 pub mod event_store;
@@ -31,5 +32,6 @@ pub mod otp_repo;
 pub mod invite_repo;
 pub mod tenant_repo;
 pub mod password_history_repo;
+pub mod refresh_token_repo;
 
 pub use pool::DbPool;

@@ -4,8 +4,10 @@
  * Creates a pre-configured Axios instance pointing at the backend API.
  * Automatically attaches the JWT access token from the active storage
  * (localStorage or sessionStorage based on remember-me) to every request
- * via an interceptor. Exports the singleton `api` instance for
- * use across all services.
+ * via a request interceptor. The response interceptor for 401 handling
+ * and automatic token refresh is set up by AuthService to avoid circular
+ * dependency. Exports the singleton `api` instance for use across all
+ * services.
  */
 
 import axios from 'axios';

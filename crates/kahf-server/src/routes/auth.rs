@@ -307,10 +307,10 @@ async fn refresh(
     .await;
 
     match &result {
-        Ok(_) => {
+        Ok(resp) => {
             audit::emit(
-                &state.jobs, &ctx, None,
-                "auth.refresh", None,
+                &state.jobs, &ctx, Some(resp.user_id),
+                "auth.refresh", Some(format!("user:{}", resp.user_id)),
                 "success", None,
             ).await;
         }
@@ -323,24 +323,27 @@ async fn refresh(
         }
     }
 
-    let access_token = result?;
-    Ok(axum::Json(serde_json::json!({ "access_token": access_token })))
+    let resp = result?;
+    Ok(axum::Json(serde_json::to_value(resp)?))
 }
 
 async fn logout(
     State(state): State<AppState>,
     ci: ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-) -> StatusCode {
+    auth_user: kahf_auth::AuthUser,
+) -> Result<StatusCode, AppError> {
     let ctx = ctx(&headers, &ci);
 
+    kahf_auth::service::logout(state.pool(), auth_user.claims.sub).await?;
+
     audit::emit(
-        &state.jobs, &ctx, None,
-        "auth.logout", None,
+        &state.jobs, &ctx, Some(auth_user.claims.sub),
+        "auth.logout", Some(format!("user:{}", auth_user.claims.sub)),
         "success", None,
     ).await;
 
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }
 
 #[derive(Deserialize)]

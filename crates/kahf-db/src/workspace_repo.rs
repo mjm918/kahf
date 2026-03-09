@@ -2,7 +2,8 @@
 //!
 //! ## WorkspaceRow
 //!
-//! Database row struct for the `workspaces` table.
+//! Database row struct for the `workspaces` table. Includes a `color`
+//! hex string used for UI theming of the workspace.
 //!
 //! ## WorkspaceMemberRow
 //!
@@ -26,6 +27,10 @@
 //!
 //! Returns all workspaces a user belongs to via `workspace_members`.
 //!
+//! ## update_workspace
+//!
+//! Updates a workspace's name and color.
+//!
 //! ## add_member
 //!
 //! Adds a member to a workspace. Uses `ON CONFLICT` to update role
@@ -34,6 +39,10 @@
 //! ## remove_member
 //!
 //! Removes a member from a workspace.
+//!
+//! ## user_has_workspaces
+//!
+//! Returns whether a user belongs to at least one workspace.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -45,6 +54,7 @@ pub struct WorkspaceRow {
     pub id: Uuid,
     pub name: String,
     pub slug: String,
+    pub color: String,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
 }
@@ -61,16 +71,18 @@ pub async fn create_workspace(
     pool: &PgPool,
     name: &str,
     slug: &str,
+    color: &str,
     created_by: Uuid,
 ) -> eyre::Result<WorkspaceRow> {
     let mut tx = pool.begin().await?;
 
     let row = sqlx::query_as::<_, WorkspaceRow>(
-        "INSERT INTO workspaces (name, slug, created_by) VALUES ($1, $2, $3)
-         RETURNING id, name, slug, created_by, created_at"
+        "INSERT INTO workspaces (name, slug, color, created_by) VALUES ($1, $2, $3, $4)
+         RETURNING id, name, slug, color, created_by, created_at"
     )
     .bind(name)
     .bind(slug)
+    .bind(color)
     .bind(created_by)
     .fetch_one(&mut *tx)
     .await?;
@@ -89,7 +101,7 @@ pub async fn create_workspace(
 
 pub async fn get_workspace(pool: &PgPool, id: Uuid) -> eyre::Result<Option<WorkspaceRow>> {
     let row = sqlx::query_as::<_, WorkspaceRow>(
-        "SELECT id, name, slug, created_by, created_at FROM workspaces WHERE id = $1"
+        "SELECT id, name, slug, color, created_by, created_at FROM workspaces WHERE id = $1"
     )
     .bind(id)
     .fetch_optional(pool)
@@ -100,7 +112,7 @@ pub async fn get_workspace(pool: &PgPool, id: Uuid) -> eyre::Result<Option<Works
 
 pub async fn get_workspace_by_slug(pool: &PgPool, slug: &str) -> eyre::Result<Option<WorkspaceRow>> {
     let row = sqlx::query_as::<_, WorkspaceRow>(
-        "SELECT id, name, slug, created_by, created_at FROM workspaces WHERE slug = $1"
+        "SELECT id, name, slug, color, created_by, created_at FROM workspaces WHERE slug = $1"
     )
     .bind(slug)
     .fetch_optional(pool)
@@ -111,7 +123,7 @@ pub async fn get_workspace_by_slug(pool: &PgPool, slug: &str) -> eyre::Result<Op
 
 pub async fn list_user_workspaces(pool: &PgPool, user_id: Uuid) -> eyre::Result<Vec<WorkspaceRow>> {
     let rows = sqlx::query_as::<_, WorkspaceRow>(
-        "SELECT w.id, w.name, w.slug, w.created_by, w.created_at
+        "SELECT w.id, w.name, w.slug, w.color, w.created_by, w.created_at
          FROM workspaces w
          INNER JOIN workspace_members wm ON w.id = wm.workspace_id
          WHERE wm.user_id = $1
@@ -122,6 +134,37 @@ pub async fn list_user_workspaces(pool: &PgPool, user_id: Uuid) -> eyre::Result<
     .await?;
 
     Ok(rows)
+}
+
+pub async fn update_workspace(
+    pool: &PgPool,
+    id: Uuid,
+    name: &str,
+    color: &str,
+) -> eyre::Result<Option<WorkspaceRow>> {
+    let row = sqlx::query_as::<_, WorkspaceRow>(
+        "UPDATE workspaces SET name = $2, color = $3
+         WHERE id = $1
+         RETURNING id, name, slug, color, created_by, created_at"
+    )
+    .bind(id)
+    .bind(name)
+    .bind(color)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row)
+}
+
+pub async fn user_has_workspaces(pool: &PgPool, user_id: Uuid) -> eyre::Result<bool> {
+    let row = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM workspace_members WHERE user_id = $1)"
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row)
 }
 
 pub async fn add_member(
